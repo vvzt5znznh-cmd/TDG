@@ -621,7 +621,10 @@ textarea {
 }
 
 .map-canvas-frame {
-  height: min(72vh, 840px);
+  width: 100%;
+  max-height: min(72vh, 840px);
+  aspect-ratio: 1600 / 1200;
+  height: auto;
   border: 2px solid var(--rule);
   background: #cfc6ad;
   overflow: hidden;

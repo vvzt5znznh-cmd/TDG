@@ -47,15 +47,40 @@ export function zoomViewport(vp: Viewport, factor: number, anchor: [number, numb
   });
 }
 
+/** Screen pixels per map unit for `preserveAspectRatio="xMidYMid meet"`. */
+export function contentScale(rect: { width: number; height: number }, vp: Viewport): number {
+  const size = viewSize(vp);
+  return Math.min(rect.width / size.width, rect.height / size.height);
+}
+
+/**
+ * Client → map, matching SVG `xMidYMid meet` (letterboxed if the canvas is not 4:3).
+ * Stretching the viewBox to the element box misses symbols and breaks the inspector.
+ */
 export function clientToMap(
   client: { clientX: number; clientY: number },
   rect: DOMRect,
   vp: Viewport,
 ): [number, number] {
+  const scale = contentScale(rect, vp);
   const size = viewSize(vp);
-  const x = vp.x + ((client.clientX - rect.left) / rect.width) * size.width;
-  const y = vp.y + ((client.clientY - rect.top) / rect.height) * size.height;
-  return [x, y];
+  const ox = rect.left + (rect.width - size.width * scale) / 2;
+  const oy = rect.top + (rect.height - size.height * scale) / 2;
+  return [vp.x + (client.clientX - ox) / scale, vp.y + (client.clientY - oy) / scale];
+}
+
+/** Inverse of the SVG screen CTM when the element is mounted (borders, meet, zoom). */
+export function clientToMapFromSvg(
+  svg: SVGSVGElement,
+  client: { clientX: number; clientY: number },
+  vp: Viewport,
+): [number, number] {
+  const ctm = svg.getScreenCTM();
+  if (ctm) {
+    const mapped = new DOMPoint(client.clientX, client.clientY).matrixTransform(ctm.inverse());
+    return [mapped.x, mapped.y];
+  }
+  return clientToMap(client, svg.getBoundingClientRect(), vp);
 }
 
 export function viewportCenter(vp: Viewport): [number, number] {
@@ -64,8 +89,8 @@ export function viewportCenter(vp: Viewport): [number, number] {
 }
 
 /** Convert a screen-pixel length to map units at the current camera. */
-export function screenToMapDistance(screenPx: number, viewportWidthPx: number, vp: Viewport): number {
-  return (screenPx / Math.max(viewportWidthPx, 1)) * (MAP_WIDTH / vp.zoom);
+export function screenToMapDistance(screenPx: number, rect: { width: number; height: number }, vp: Viewport): number {
+  return screenPx / Math.max(contentScale(rect, vp), 1e-6);
 }
 
 export function fitViewport(): Viewport {

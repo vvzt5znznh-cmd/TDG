@@ -42,6 +42,10 @@ describe("hit testing", () => {
     expect(pickFeature([unit, road], [210, 205])?.id).toBe("plt");
   });
 
+  it("picks a symbol on top of a road", () => {
+    expect(pickFeature([road, unit], [200, 200])?.id).toBe("plt");
+  });
+
   it("picks a vertex on a polygon", () => {
     expect(pickVertex(swamp, [40, 0], 8)).toBe(1);
   });

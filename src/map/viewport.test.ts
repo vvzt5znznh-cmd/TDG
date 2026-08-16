@@ -21,10 +21,21 @@ describe("viewport", () => {
     expect(y).toBeCloseTo(600);
   });
 
+  it("letterboxes a non-4:3 canvas so a click on a unit maps to the unit", () => {
+    const scale = Math.min(900 / 1600, 840 / 1200);
+    const ox = (900 - 1600 * scale) / 2;
+    const oy = (840 - 1200 * scale) / 2;
+    const rect = { left: 0, top: 0, width: 900, height: 840 } as DOMRect;
+    const [x, y] = clientToMap({ clientX: ox + 390 * scale, clientY: oy + 300 * scale }, rect, defaultViewport());
+    expect(x).toBeCloseTo(390);
+    expect(y).toBeCloseTo(300);
+  });
+
   it("scales hit slop with zoom so handles stay clickable", () => {
-    expect(screenToMapDistance(8, 800, defaultViewport())).toBeCloseTo(16);
+    const frame = { width: 800, height: 600 };
+    expect(screenToMapDistance(8, frame, defaultViewport())).toBeCloseTo(16);
     const zoomed = zoomViewport(defaultViewport(), 2, [800, 600]);
-    expect(screenToMapDistance(8, 800, zoomed)).toBeCloseTo(8);
+    expect(screenToMapDistance(8, frame, zoomed)).toBeCloseTo(8);
     const out = zoomViewport(defaultViewport(), 0.5, viewportCenter(defaultViewport()));
     expect(out.zoom).toBe(0.5);
     expect(viewportCenter(out)[0]).toBeCloseTo(800);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { editableVertices, pointerDistance, rotateHandlePoint } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
-import { clampViewport, clientToMap, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
+import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
 import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
 import { MapScene } from "./MapView";
 
@@ -76,7 +76,7 @@ export function MapCanvas({
       const el = svgRef.current;
       if (!el) return;
       event.preventDefault();
-      const point = clientToMap(event, el.getBoundingClientRect(), viewport);
+      const point = clientToMapFromSvg(el, event, viewport);
       const factor = event.deltaY > 0 ? 0.9 : 1.1;
       onViewport(zoomViewport(viewport, factor, point));
     }
@@ -107,7 +107,7 @@ export function MapCanvas({
   function mapPoint(event: { clientX: number; clientY: number }): [number, number] | null {
     const svg = svgRef.current;
     if (!svg) return null;
-    return clientToMap(event, svg.getBoundingClientRect(), viewport);
+    return clientToMapFromSvg(svg, event, viewport);
   }
 
   function maybeSnap(point: [number, number]): [number, number] {
@@ -118,8 +118,8 @@ export function MapCanvas({
 
   function mapPx(screenPx: number): number {
     const svg = svgRef.current;
-    const width = svg?.getBoundingClientRect().width || 800;
-    return screenToMapDistance(screenPx, width, viewport);
+    const rect = svg?.getBoundingClientRect() ?? { width: 800, height: 600 };
+    return screenToMapDistance(screenPx, rect, viewport);
   }
 
   function handlePointerDown(event: ReactPointerEvent<SVGSVGElement>) {
@@ -169,10 +169,9 @@ export function MapCanvas({
       const svg = svgRef.current;
       if (!svg) return;
       const rect = svg.getBoundingClientRect();
-      const sizeW = 1600 / viewport.zoom;
-      const sizeH = 1200 / viewport.zoom;
-      const dx = ((event.clientX - drag.lastClient[0]) / rect.width) * sizeW;
-      const dy = ((event.clientY - drag.lastClient[1]) / rect.height) * sizeH;
+      const scale = contentScale(rect, viewport);
+      const dx = (event.clientX - drag.lastClient[0]) / scale;
+      const dy = (event.clientY - drag.lastClient[1]) / scale;
       drag.lastClient = [event.clientX, event.clientY];
       onViewport(clampViewport({ ...viewport, x: viewport.x - dx, y: viewport.y - dy }));
       return;
@@ -240,6 +239,7 @@ export function MapCanvas({
         ref={svgRef}
         className="map-canvas"
         viewBox={viewBox(viewport)}
+        preserveAspectRatio="xMidYMid meet"
         style={{ cursor: cursor ?? (panning ? "grab" : tool === "select" ? "default" : "crosshair") }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

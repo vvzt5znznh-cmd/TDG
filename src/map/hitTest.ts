@@ -36,13 +36,17 @@ export function featureHitDistance(feature: MapFeature, point: [number, number])
 
 export function pickFeature(features: MapFeature[], point: [number, number], threshold = 18): MapFeature | null {
   let best: MapFeature | null = null;
-  let bestDist = threshold;
+  let bestDist = Infinity;
+  let bestRank = -1;
   for (const feature of features) {
     const dist = featureHitDistance(feature, point);
     const limit = feature.featureType === "symbol" ? Math.max(threshold, (feature.sizePx ?? 42) * 0.7) : threshold;
-    if (dist <= limit && dist <= bestDist) {
+    if (dist > limit) continue;
+    const rank = feature.featureType === "symbol" ? 3 : feature.featureType === "control_measure" ? 2 : 1;
+    if (rank > bestRank || (rank === bestRank && dist < bestDist)) {
       best = feature;
       bestDist = dist;
+      bestRank = rank;
     }
   }
   return best;
