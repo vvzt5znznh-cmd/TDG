@@ -35,6 +35,8 @@ export function inlineSvgMarkup(svg: string): string {
   return svg.replace(/<\?xml[\s\S]*?\?>/i, "").trim();
 }
 
+export type SymbolPicture = ReturnType<typeof renderSymbol>;
+
 export function renderSymbol(symbol: MilSymbol, size = symbol.sizePx ?? DEFAULT_SYMBOL_SIZE) {
   const generated = new ms.Symbol(symbolSidc(symbol), symbolOptions(symbol, size));
   const svg = generated.asSVG();
@@ -60,9 +62,4 @@ export function renderSymbol(symbol: MilSymbol, size = symbol.sizePx ?? DEFAULT_
 
 export function symbolDataUrl(symbol: MilSymbol, size = symbol.sizePx ?? DEFAULT_SYMBOL_SIZE) {
   return renderSymbol(symbol, size);
-}
-
-export function catalogChipHref(sidc: string): string {
-  const generated = new ms.Symbol(sidc, { size: 28, standard: "APP6" });
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(generated.asSVG())}`;
 }

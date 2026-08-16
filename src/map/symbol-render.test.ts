@@ -50,4 +50,9 @@ describe("milsymbol rendering", () => {
     expect(rendered.inlineSvg).not.toMatch(/<\?xml/);
     expect(inlineSvgMarkup("<?xml version=\"1.0\"?><svg/>")).toBe("<svg/>");
   });
+
+  it("draws uniqueDesignation from the unit name", () => {
+    const rendered = symbolDataUrl(sample({ designation: "1st Squad" }));
+    expect(rendered.svg).toContain("1st Squad");
+  });
 });

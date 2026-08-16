@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMapDocument } from "../schema/create";
-import { addBaseTerrain, ensureVectorBase, isRasterUnderlay, mapImageRef, paperBackgroundSvg } from "./mapBase";
+import { addBaseTerrain, ensureLayer, ensureVectorBase, isRasterUnderlay, mapImageRef, paperBackgroundSvg } from "./mapBase";
 import { setVertex } from "./geometry";
 
 describe("editable map base", () => {
@@ -70,5 +70,16 @@ describe("editable map base", () => {
     const map = createMapDocument("img_paper");
     expect(map.base.kind).toBe("vector");
     expect(mapImageRef(map)).toBe("img_paper");
+  });
+
+  it("adds a missing identity overlay on old maps", () => {
+    const map = createMapDocument("img_1");
+    map.layers = map.layers.filter((layer) => layer.role !== "neutral" && layer.role !== "unknown");
+    expect(map.layers.some((layer) => layer.role === "neutral")).toBe(false);
+    const withNeutral = ensureLayer(map, "neutral");
+    expect(withNeutral.layers.find((layer) => layer.role === "neutral")?.visibleIn).toEqual(["student", "facilitator"]);
+    const withUnknown = ensureLayer(withNeutral, "unknown");
+    expect(withUnknown.layers.find((layer) => layer.role === "unknown")?.visibleIn).toEqual(["student", "facilitator"]);
+    expect(ensureLayer(withUnknown, "unknown")).toBe(withUnknown);
   });
 });

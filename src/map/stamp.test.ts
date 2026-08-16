@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createSymbolFromStamp, parseUnitStamp } from "./stamp";
+import { createSymbolFromStamp, layerRoleForAffiliation } from "./stamp";
 import { functionIdFromSidc } from "./sidc";
 
 describe("unit stamps", () => {
-  it("rejects junk drag payloads", () => {
-    expect(parseUnitStamp("not-json")).toBeNull();
-    expect(parseUnitStamp("{}")).toBeNull();
-    expect(parseUnitStamp(JSON.stringify({ functionId: "x" }))).toBeNull();
-  });
-
-  it("creates a named custom unit from a stamp", () => {
+  it("creates a named unit from the live composer fields", () => {
     const symbol = createSymbolFromStamp(
-      { functionId: "UCI", designation: "1st Squad", echelon: "squad" },
+      { functionId: "UCI", designation: "1st Squad", echelon: "squad", affiliation: "friendly" },
       [400, 500],
-      { affiliation: "friendly", echelon: "platoon" },
     );
     expect(symbol.designation).toBe("1st Squad");
     expect(symbol.echelon).toBe("squad");
@@ -22,11 +15,25 @@ describe("unit stamps", () => {
     expect(symbol.position.coordinates).toEqual([400, 500]);
   });
 
-  it("uses live whose when the stamp has no affiliation", () => {
-    const symbol = createSymbolFromStamp({ functionId: "UCA" }, [0, 0], { affiliation: "hostile", echelon: "company" });
-    expect(symbol.affiliation).toBe("hostile");
+  it("puts each identity on its own overlay layer", () => {
+    expect(layerRoleForAffiliation("friendly", "all")).toBe("friendly");
+    expect(layerRoleForAffiliation("hostile", "student")).toBe("enemy_known");
+    expect(layerRoleForAffiliation("hostile", "facilitator")).toBe("enemy_truth");
+    expect(layerRoleForAffiliation("neutral", "all")).toBe("neutral");
+    expect(layerRoleForAffiliation("unknown", "all")).toBe("unknown");
+  });
+
+  it("uses suspected confidence for hostile identity", () => {
+    const symbol = createSymbolFromStamp({ functionId: "UCA", affiliation: "hostile", echelon: "company" }, [0, 0]);
     expect(symbol.confidence).toBe("suspected");
-    expect(symbol.echelon).toBe("company");
     expect(symbol.frame).toBe("diamond");
+  });
+
+  it("omits a blank designation so milsymbol does not draw an empty name", () => {
+    const symbol = createSymbolFromStamp(
+      { functionId: "UCI", designation: "   ", affiliation: "friendly", echelon: "platoon" },
+      [0, 0],
+    );
+    expect(symbol.designation).toBeUndefined();
   });
 });

@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { editableVertices, pointerDistance, rotateHandlePoint } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
 import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
-import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
-import type { UnitStamp } from "../../map/stamp";
-import { stampFromDataTransfer } from "../../map/stamp";
+import type { Audience, MapDocument, MapFeature, MilSymbol, Point } from "../../schema/types";
 import { MapScene } from "./MapView";
+import { SymbolMark } from "./MilSymbolMark";
 
 export type MapTool = "select" | "pan" | "draw";
 
@@ -32,6 +31,9 @@ export function MapCanvas({
   showGrid,
   draftPoints,
   cursor,
+  svgRef: svgRefProp,
+  ghost,
+  placing,
   onViewport,
   onSelect,
   onClickPoint,
@@ -41,7 +43,6 @@ export function MapCanvas({
   onRotate,
   onStrokeStart,
   onStrokeEnd,
-  onDropStamp,
 }: {
   map: MapDocument;
   imageUrl?: string;
@@ -55,6 +56,9 @@ export function MapCanvas({
   showGrid?: boolean;
   draftPoints?: [number, number][];
   cursor?: string;
+  svgRef?: RefObject<SVGSVGElement | null>;
+  ghost?: MilSymbol | null;
+  placing?: boolean;
   onViewport: (viewport: Viewport) => void;
   onSelect: (id: string | null) => void;
   onClickPoint: (point: Point) => void;
@@ -64,13 +68,12 @@ export function MapCanvas({
   onRotate: (id: string, rotationDeg: number) => void;
   onStrokeStart: () => void;
   onStrokeEnd: () => void;
-  onDropStamp?: (stamp: UnitStamp, point: Point) => void;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
+  const localSvgRef = useRef<SVGSVGElement>(null);
+  const svgRef = svgRefProp ?? localSvgRef;
   const dragRef = useRef<Drag | null>(null);
   const suppressClickRef = useRef(false);
   const [spacePan, setSpacePan] = useState(false);
-  const [dropReady, setDropReady] = useState(false);
   const selected = selectedId ? allGroundAndOverlayFeatures(map).find((feature) => feature.id === selectedId) : undefined;
   const panning = tool === "pan" || spacePan;
 
@@ -87,7 +90,7 @@ export function MapCanvas({
     }
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
-  }, [viewport, onViewport]);
+  }, [viewport, onViewport, svgRef]);
 
   useEffect(() => {
     function typing(event: KeyboardEvent) {
@@ -128,6 +131,7 @@ export function MapCanvas({
   }
 
   function handlePointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (placing) return;
     const point = mapPoint(event);
     if (!point) return;
     if (panning || event.button === 1) {
@@ -214,6 +218,7 @@ export function MapCanvas({
   }
 
   function handleClick(event: { clientX: number; clientY: number }) {
+    if (placing) return;
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
@@ -231,23 +236,6 @@ export function MapCanvas({
     onClickPoint({ type: "Point", coordinates: snapped });
   }
 
-  function handleDragOver(event: ReactDragEvent) {
-    if (!onDropStamp) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    setDropReady(true);
-  }
-
-  function handleDrop(event: ReactDragEvent) {
-    if (!onDropStamp) return;
-    event.preventDefault();
-    setDropReady(false);
-    const stamp = stampFromDataTransfer(event.dataTransfer);
-    const point = mapPoint(event);
-    if (!stamp || !point) return;
-    onDropStamp(stamp, { type: "Point", coordinates: maybeSnap(point) });
-  }
-
   const handleR = mapPx(6);
   const handles = selected && selected.featureType !== "symbol" ? editableVertices(selected.geometry) : [];
   const symbolHandle =
@@ -256,31 +244,21 @@ export function MapCanvas({
       : null;
 
   return (
-    <div
-      className={`map-canvas-frame ${greyscale ? "greyscale" : ""} ${dropReady ? "drop-ready" : ""}`}
-      onDragOver={handleDragOver}
-      onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-        setDropReady(false);
-      }}
-      onDrop={handleDrop}
-    >
+    <div className={`map-canvas-frame ${greyscale ? "greyscale" : ""}`}>
       <svg
         ref={svgRef}
         className="map-canvas"
         viewBox={viewBox(viewport)}
         preserveAspectRatio="xMidYMid meet"
-        style={{ cursor: cursor ?? (panning ? "grab" : tool === "select" ? "default" : "crosshair") }}
+        style={{
+          cursor:
+            cursor ?? (placing ? "grabbing" : panning ? "grab" : tool === "select" ? "default" : "crosshair"),
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onClick={handleClick}
-        onDragOver={handleDragOver}
-        onDrop={(event) => {
-          event.stopPropagation();
-          handleDrop(event);
-        }}
         onDoubleClick={() => {
           if (draftPoints && draftPoints.length > 0) onFinishDraft?.();
         }}
@@ -296,11 +274,17 @@ export function MapCanvas({
           draftPoints={draftPoints}
           showGrid={showGrid}
         />
+        {ghost ? (
+          <g className="unit-ghost" pointerEvents="none">
+            <SymbolMark symbol={ghost} />
+          </g>
+        ) : null}
         {tool === "select" &&
+          !placing &&
           handles.map(([hx, hy], index) => (
             <circle key={index} className="vertex-handle" cx={hx} cy={hy} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
           ))}
-        {tool === "select" && symbolHandle && selected?.featureType === "symbol" ? (
+        {tool === "select" && !placing && symbolHandle && selected?.featureType === "symbol" ? (
           <g>
             <line
               x1={selected.position.coordinates[0]}

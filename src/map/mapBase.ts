@@ -1,4 +1,5 @@
-import type { Layer, MapDocument, MapFeature, TerrainFeature } from "../schema/types";
+import type { Audience, Layer, LayerRole, MapDocument, MapFeature, TerrainFeature } from "../schema/types";
+import { newId } from "../schema/ids";
 import { translateFeature } from "./geometry";
 
 export function paperBackgroundSvg(title = ""): string {
@@ -78,6 +79,15 @@ export function baseFeatures(map: MapDocument): TerrainFeature[] {
 
 export function allGroundAndOverlayFeatures(map: MapDocument): MapFeature[] {
   return [...baseFeatures(map), ...map.layers.flatMap((layer) => layer.features)];
+}
+
+export function ensureLayer(map: MapDocument, role: LayerRole): MapDocument {
+  if (map.layers.some((layer) => layer.role === role)) return map;
+  const visibleIn: Audience[] = role === "enemy_truth" || role === "solution_overlay" ? ["facilitator"] : ["student", "facilitator"];
+  return {
+    ...map,
+    layers: [...map.layers, { id: newId(), role, visibleIn, features: [] }],
+  };
 }
 
 export function addBaseTerrain(map: MapDocument, feature: TerrainFeature): MapDocument {

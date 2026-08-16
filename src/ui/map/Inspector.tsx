@@ -28,7 +28,7 @@ export function Inspector({
     return (
       <aside className="map-inspector">
         <div className="section-kicker">Inspector</div>
-        <p className="hint">Select a unit or a piece of ground. Drag a unit from the rail onto the sheet to place it.</p>
+        <p className="hint">Select a unit or a piece of ground. Drag the unit picture from the rail onto the sheet to place it.</p>
       </aside>
     );
   }
@@ -44,7 +44,7 @@ export function Inspector({
       <aside className="map-inspector">
         <div className="section-kicker">This unit</div>
         <Field label="Designation">
-          <CommitTextInput value={symbol.designation ?? ""} onCommit={(designation) => onPatch({ designation })} placeholder="2. plut" />
+          <CommitTextInput value={symbol.designation ?? ""} onCommit={(designation) => onPatch({ designation })} placeholder="1st Squad" />
         </Field>
         <Field label="Kind">
           <Select value={kind} options={kindOptions} onChange={(functionId) => onPatch({ functionId })} />

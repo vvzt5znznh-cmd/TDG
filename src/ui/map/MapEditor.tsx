@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { readFileAsDataUrl } from "../../io/files";
 import { setVertex } from "../../map/geometry";
 import {
   addBaseTerrain,
   allGroundAndOverlayFeatures,
   deleteFeature,
+  ensureLayer,
   ensureVectorBase,
   mapImageRef,
   moveFeature,
@@ -12,10 +13,16 @@ import {
 } from "../../map/mapBase";
 import { withSyncedSidc } from "../../map/sidc";
 import { createSymbolFromStamp, layerRoleForAffiliation, type UnitStamp } from "../../map/stamp";
-import { defaultViewport, fitViewport, viewportCenter, zoomViewport, type Viewport } from "../../map/viewport";
+import {
+  clientToMapFromSvg,
+  defaultViewport,
+  fitViewport,
+  viewportCenter,
+  zoomViewport,
+  type Viewport,
+} from "../../map/viewport";
 import { newId } from "../../schema/ids";
 import type {
-  Affiliation,
   Audience,
   ControlMeasureKind,
   Echelon,
@@ -32,7 +39,7 @@ import { Field, NumberInput, Select, TextInput } from "../fields";
 import { Inspector } from "./Inspector";
 import { MapCanvas, type MapTool } from "./MapCanvas";
 import { geometryFromDraft, usedLegend } from "./MapView";
-import { UnitTray, type CustomTrayItem } from "./UnitTray";
+import { UnitTray } from "./UnitTray";
 
 type DrawKind = "point" | "line" | "polygon";
 
@@ -89,10 +96,14 @@ export function MapEditor({
   const map = scenario.maps[0];
   const [tool, setTool] = useState<MapTool>("select");
   const [drawId, setDrawId] = useState<DrawTool["id"] | null>(null);
-  const [affiliation, setAffiliation] = useState<Affiliation>("friendly");
   const stampEchelon: Echelon = scenario.meta.echelon === "custom" ? "platoon" : scenario.meta.echelon;
-  const [unitDraft, setUnitDraft] = useState<UnitStamp>({ functionId: "UCI", echelon: stampEchelon });
-  const [customUnits, setCustomUnits] = useState<CustomTrayItem[]>([]);
+  const [unitDraft, setUnitDraft] = useState<UnitStamp>({
+    functionId: "UCI",
+    echelon: stampEchelon,
+    affiliation: "friendly",
+  });
+  const [placing, setPlacing] = useState(false);
+  const [ghost, setGhost] = useState<MilSymbol | null>(null);
   const [label, setLabel] = useState("");
   const [audience, setAudience] = useState<Audience | "all">("all");
   const [greyscale, setGreyscale] = useState(false);
@@ -107,6 +118,16 @@ export function MapEditor({
   const strokeRef = useRef<MapDocument | null>(null);
   const mapRef = useRef(map);
   mapRef.current = map;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const unitDraftRef = useRef(unitDraft);
+  unitDraftRef.current = unitDraft;
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
+  const snapRef = useRef(snap);
+  snapRef.current = snap;
+  const audienceRef = useRef(audience);
+  audienceRef.current = audience;
+  const placeSessionRef = useRef<{ cancelled: boolean } | null>(null);
 
   const drawTool = [...GROUND_TOOLS, ...GRAPHIC_TOOLS].find((item) => item.id === drawId);
 
@@ -120,6 +141,7 @@ export function MapEditor({
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        cancelPlace();
         setDraft([]);
         setTool("select");
         setDrawId(null);
@@ -192,13 +214,106 @@ export function MapEditor({
   }
 
   function placeSymbol(point: [number, number], stamp: UnitStamp) {
-    if (!map) return;
-    const feature = createSymbolFromStamp(stamp, point, { affiliation, echelon: stampEchelon });
-    const role = layerRoleForAffiliation(feature.affiliation, audience);
-    commit(addOverlayFeature(map, role, feature));
+    const current = mapRef.current;
+    if (!current) return;
+    const feature = createSymbolFromStamp(stamp, point);
+    const role = layerRoleForAffiliation(feature.affiliation, audienceRef.current);
+    commit(addOverlayFeature(ensureLayer(current, role), role, feature));
     setSelectedId(feature.id);
     setTool("select");
     setDrawId(null);
+  }
+
+  function snapPoint(point: [number, number]): [number, number] {
+    if (!snapRef.current) return point;
+    const step = 25;
+    return [Math.round(point[0] / step) * step, Math.round(point[1] / step) * step];
+  }
+
+  function clientOnSheet(client: { clientX: number; clientY: number }): boolean {
+    const svg = svgRef.current;
+    if (!svg) return false;
+    const rect = svg.getBoundingClientRect();
+    return (
+      client.clientX >= rect.left &&
+      client.clientX <= rect.right &&
+      client.clientY >= rect.top &&
+      client.clientY <= rect.bottom
+    );
+  }
+
+  function mapPointFromClient(client: { clientX: number; clientY: number }): [number, number] | null {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    return clientToMapFromSvg(svg, client, viewportRef.current);
+  }
+
+  function ghostAt(point: [number, number]): MilSymbol {
+    return { ...createSymbolFromStamp(unitDraftRef.current, point), id: "unit-ghost" };
+  }
+
+  function cancelPlace() {
+    if (placeSessionRef.current) placeSessionRef.current.cancelled = true;
+    placeSessionRef.current = null;
+    setPlacing(false);
+    setGhost(null);
+  }
+
+  function onPlacePointerDown(event: React.PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setTool("select");
+    setDrawId(null);
+    setSelectedId(null);
+    const session = { cancelled: false };
+    placeSessionRef.current = session;
+    setPlacing(true);
+
+    function updateGhost(client: { clientX: number; clientY: number }) {
+      if (!clientOnSheet(client)) {
+        setGhost(null);
+        return;
+      }
+      const point = mapPointFromClient(client);
+      if (!point) {
+        setGhost(null);
+        return;
+      }
+      setGhost(ghostAt(snapPoint(point)));
+    }
+
+    updateGhost(event);
+
+    function onMove(ev: PointerEvent) {
+      if (session.cancelled) return;
+      updateGhost(ev);
+    }
+
+    function onUp(ev: PointerEvent) {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      if (session.cancelled || placeSessionRef.current !== session) return;
+      placeSessionRef.current = null;
+      setPlacing(false);
+      setGhost(null);
+      if (!clientOnSheet(ev)) return;
+      const point = mapPointFromClient(ev);
+      if (!point) return;
+      placeSymbol(snapPoint(point), unitDraftRef.current);
+    }
+
+    function onCancel() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      if (placeSessionRef.current === session) cancelPlace();
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
   }
 
   function commitPoint(point: [number, number]) {
@@ -330,17 +445,12 @@ export function MapEditor({
         ) : null}
 
         <UnitTray
-          affiliation={affiliation}
-          onAffiliation={setAffiliation}
-          defaultEchelon={stampEchelon}
+          stamp={unitDraft}
           query={symbolQuery}
+          placing={placing}
+          onStamp={setUnitDraft}
           onQuery={setSymbolQuery}
-          draft={unitDraft}
-          onDraft={setUnitDraft}
-          customUnits={customUnits}
-          onKeep={(item) => setCustomUnits((items) => [...items, { ...item, affiliation }])}
-          onRemove={(id) => setCustomUnits((items) => items.filter((item) => item.id !== id))}
-          onSeed={(stamp) => setUnitDraft(stamp)}
+          onPlacePointerDown={onPlacePointerDown}
         />
 
         <details>
@@ -388,13 +498,15 @@ export function MapEditor({
 
       <div className="map-stage-col">
         <p className="map-mode">
-          {tool === "select"
-            ? "Select — drag a unit from the rail onto the sheet. Drag to move, corners to reshape, handle above a unit to rotate."
-            : tool === "pan"
-              ? "Pan — drag the sheet. Wheel zooms. 0 fits."
-              : drawTool?.draw === "point"
-                ? `Place ${drawTool.label} — click the map.`
-                : `Draw ${drawTool?.label ?? "shape"} — click points, Enter or double-click to finish.`}
+          {placing
+            ? "Place — drop on the sheet. Esc cancels."
+            : tool === "select"
+              ? "Select — drag the unit picture from the rail onto the sheet. Drag to move, corners to reshape, handle above a unit to rotate."
+              : tool === "pan"
+                ? "Pan — drag the sheet. Wheel zooms. 0 fits."
+                : drawTool?.draw === "point"
+                  ? `Place ${drawTool.label} — click the map.`
+                  : `Draw ${drawTool?.label ?? "shape"} — click points, Enter or double-click to finish.`}
         </p>
         <MapCanvas
           map={map}
@@ -408,10 +520,12 @@ export function MapEditor({
           snap={snap}
           showGrid={showGrid}
           draftPoints={draft}
+          svgRef={svgRef}
+          ghost={ghost}
+          placing={placing}
           onViewport={setViewport}
           onSelect={setSelectedId}
           onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
-          onDropStamp={(stamp, point) => placeSymbol([point.coordinates[0], point.coordinates[1]], stamp)}
           onFinishDraft={finishDraft}
           onMove={(id, dx, dy) => {
             const current = mapRef.current;

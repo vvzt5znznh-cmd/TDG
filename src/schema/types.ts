@@ -67,6 +67,8 @@ export type LayerRole =
   | "friendly"
   | "enemy_known"
   | "enemy_truth"
+  | "neutral"
+  | "unknown"
   | "labels"
   | "solution_overlay"
   | "outcome_overlay";

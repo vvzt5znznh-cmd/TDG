@@ -19,6 +19,8 @@ export const DEFAULT_LAYER_ROLES: { role: LayerRole; visibleIn: Audience[]; name
   { role: "friendly", visibleIn: ["student", "facilitator"] },
   { role: "enemy_known", visibleIn: ["student", "facilitator"] },
   { role: "enemy_truth", visibleIn: ["facilitator"] },
+  { role: "neutral", visibleIn: ["student", "facilitator"] },
+  { role: "unknown", visibleIn: ["student", "facilitator"] },
   { role: "labels", visibleIn: ["student", "facilitator"] },
   { role: "solution_overlay", visibleIn: ["facilitator"] },
 ];
