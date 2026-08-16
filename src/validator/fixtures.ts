@@ -157,6 +157,7 @@ export function makeValidScenario(): Scenario {
     {
       featureType: "symbol",
       id: newId(),
+      sidc: "SHGAUCI----D",
       affiliation: "hostile",
       frame: "diamond",
       confidence: "suspected",

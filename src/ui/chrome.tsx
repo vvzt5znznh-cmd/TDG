@@ -9,7 +9,6 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   const file = useDocument((state) => state.file);
   const fileName = useDocument((state) => state.fileName);
   const dirty = useDocument((state) => state.dirty);
-  const status = useDocument((state) => state.status);
   const cacheOnly = useDocument((state) => state.cacheOnly);
   const loadError = useDocument((state) => state.loadError);
   const save = useDocument((state) => state.save);
@@ -54,9 +53,9 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
               <button type="button" className="btn btn-primary" onClick={() => void save()}>
                 Save
               </button>
-              <button type="button" className="btn" onClick={() => void saveAs()}>
-                Save as
-              </button>
+          <button type="button" className="btn" onClick={() => void saveAs()}>
+            Save as
+          </button>
               <button
                 type="button"
                 className="btn"
@@ -79,7 +78,8 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           </header>
           <div className={`status-line ${cacheOnly || dirty ? "warn" : ""}`}>
             {loadError ? `${loadError} — ` : ""}
-            {status}
+            {dirty ? "Unsaved. " : ""}
+            {fileName ? fileName : "No file yet — Save creates one. Cache is not the file."}
           </div>
         </>
       )}

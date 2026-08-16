@@ -534,4 +534,107 @@ textarea {
   .grid-3 {
     grid-template-columns: 1fr;
   }
+
+  .map-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.editor-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--paper-3);
+  background: var(--paper-2);
+  flex-wrap: wrap;
+}
+
+.editor-tabs button {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.editor-tabs button.active {
+  background: var(--olive);
+  color: var(--paper);
+  border-color: var(--olive);
+}
+
+.check-pill {
+  margin-left: auto;
+  font-size: 12px;
+  max-width: min(520px, 55%);
+  color: var(--stamp);
+}
+
+.check-pill.ok {
+  color: var(--ok);
+}
+
+.map-main {
+  padding: 12px 16px 32px;
+}
+
+.map-workspace {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.map-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.symbol-palette {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.symbol-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--paper-3);
+  background: #fff;
+  padding: 6px 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.symbol-chip.selected {
+  border-color: var(--olive);
+  box-shadow: 0 0 0 2px var(--olive);
+}
+
+.symbol-chip img {
+  height: 34px;
+  width: auto;
+}
+
+.lede {
+  color: var(--ink-soft);
+  max-width: 42em;
+}
+
+.more-block {
+  margin: 18px 0;
+  border-top: 1px dashed var(--paper-3);
+  padding-top: 10px;
+}
+
+.more-block summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.write-view h2 {
+  margin-top: 1.4em;
 }

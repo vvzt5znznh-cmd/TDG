@@ -125,7 +125,7 @@ export function createBlankScenario(options: CreateScenarioOptions = {}): Scenar
     dilemma: {
       statement: "",
       type: "insufficient_combat_power",
-      dependencies: [],
+      dependencies: [{ kind: "force", description: "" }],
     },
     situation: {
       general: "",

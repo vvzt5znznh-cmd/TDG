@@ -105,9 +105,9 @@ export function validateScenario(scenario: Scenario): ValidationResult {
       issue("dilemma_statement_empty", "error", "Dilemma statement is empty. Every scenario needs an identified tension.", "dilemma.statement"),
     );
   }
-  if (scenario.dilemma.dependencies.length === 0) {
+  if (scenario.dilemma.dependencies.filter((dep) => dep.description.trim()).length === 0) {
     errors.push(
-      issue("dilemma_dependencies_empty", "error", "Dilemma has no dependencies. Map and reskin checks have nothing to key off.", "dilemma.dependencies"),
+      issue("dilemma_dependencies_empty", "error", "Say what the dilemma hangs on — force, terrain, time, or fires.", "dilemma.dependencies"),
     );
   }
   if (!Number.isFinite(scenario.requirement.timeLimitMinutes) || scenario.requirement.timeLimitMinutes <= 0) {
@@ -179,31 +179,35 @@ export function validateScenario(scenario: Scenario): ValidationResult {
   }
 
   const blob = narrativeBlob(scenario);
+  const narrativeStarted = blob.replace(/\s+/g, " ").trim().length >= 40;
   const designations = allDesignations(scenario.forces.taskOrg).filter((d) => d.trim() && d !== "Player force");
   const designationLower = designations.map((d) => d.toLowerCase());
 
-  const unitMentions = new Set<string>();
-  for (const match of blob.matchAll(UNIT_PATTERN)) {
-    const mention = match[0].replace(/\s+/g, " ").trim();
-    if (mention) unitMentions.add(mention);
-  }
-  for (const mention of unitMentions) {
-    const lower = mention.toLowerCase();
-    const found = designationLower.some((d) => d.includes(lower) || lower.includes(d));
-    if (!found) {
-      warnings.push(
-        issue("unit_named_but_absent", "warning", `Unit “${mention}” is named in the narrative but is absent from the task organization.`, "forces.taskOrg"),
-      );
+  if (narrativeStarted) {
+    const unitMentions = new Set<string>();
+    for (const match of blob.matchAll(UNIT_PATTERN)) {
+      const mention = match[0].replace(/\s+/g, " ").trim();
+      if (mention) unitMentions.add(mention);
     }
-  }
+    for (const mention of unitMentions) {
+      const lower = mention.toLowerCase();
+      const found = designationLower.some((d) => d.includes(lower) || lower.includes(d));
+      if (!found) {
+        warnings.push(
+          issue("unit_named_but_absent", "warning", `Unit “${mention}” is named in the narrative but is absent from the task organization.`, "forces.taskOrg"),
+        );
+      }
+    }
 
-  for (const { node } of flattenTaskOrg(scenario.forces.taskOrg)) {
-    const designation = node.designation.trim();
-    if (!designation || designation === "Player force") continue;
-    if (!blob.toLowerCase().includes(designation.toLowerCase())) {
-      warnings.push(
-        issue("unit_never_referenced", "warning", `Unit “${designation}” is in the task organization but never referenced in the narrative.`, `forces.taskOrg.${node.id}`),
-      );
+    const placeholders = new Set(["Player force", "Squad", "New unit"]);
+    for (const { node } of flattenTaskOrg(scenario.forces.taskOrg)) {
+      const designation = node.designation.trim();
+      if (!designation || placeholders.has(designation)) continue;
+      if (!blob.toLowerCase().includes(designation.toLowerCase())) {
+        warnings.push(
+          issue("unit_never_referenced", "warning", `Unit “${designation}” is in the task organization but never referenced in the narrative.`, `forces.taskOrg.${node.id}`),
+        );
+      }
     }
   }
 
@@ -220,7 +224,7 @@ export function validateScenario(scenario: Scenario): ValidationResult {
   const loadBearing = loadBearingFeatureIds(scenario);
 
   for (const [index, dep] of scenario.dilemma.dependencies.entries()) {
-    if (dep.kind === "terrain" && (!dep.mapFeatureRefs || dep.mapFeatureRefs.length === 0)) {
+    if (dep.kind === "terrain" && dep.description.trim() && (!dep.mapFeatureRefs || dep.mapFeatureRefs.length === 0)) {
       warnings.push(
         issue("terrain_dep_missing_feature_refs", "warning", "Terrain dependency has no mapFeatureRefs. Dilemma-critical terrain may be invisible.", `dilemma.dependencies.${index}`),
       );

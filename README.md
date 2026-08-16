@@ -20,13 +20,12 @@ Open the app, create or duplicate a shipped example, then **Save** a `.tdg.json`
 
 ## v1
 
-- Scenario authoring: meta, dilemma, situation, requirement, outcomes, facilitator notes
-- Mission-type presets for outcome states, always including time-expired / no-decision
-- Task organization tree with a per-scenario status overlay (list + diagram)
-- Raster base map with symbol and control-measure overlays, student/facilitator layers, greyscale preview
-- Validator (errors block print; warnings do not)
-- Student handout and facilitator packet
-- Explicit file open/save (File System Access API where available; download / file-input fallback)
+- Three tabs: **Write** (the TDG), **Map**, **Packet** (facilitator-only). Optional fields stay folded away.
+- APP-6 unit symbols via [milsymbol](https://github.com/spatialillusions/milsymbol): pick friend/foe, echelon, and type, then stamp the map
+- Upload a sketch/scan, then draw OBJ / phase line / woods / road / swamp
+- Mission-type outcome presets, always including time-expired / no-decision
+- Student handout and facilitator packet (browser Print / Save as PDF)
+- Explicit file open/save; the browser cache is not the file
 - Eight original fictionalized example scenarios
 
 Not in v1: vector terrain editor, force-template library, campaigns, student timer, scoring.

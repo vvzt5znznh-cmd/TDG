@@ -26,8 +26,8 @@ export function LibraryPage() {
         <div className="kicker">Local-first authoring</div>
         <h1>Tactical Decision Games, on paper.</h1>
         <p>
-          One authoring pass. Two documents: a student handout and a facilitator packet. No accounts, no server, no
-          score. Save a <code>.tdg.json</code> file — that file is the scenario.
+          Write the dilemma, stamp APP-6 symbols on a map image, print a student handout and a facilitator packet.
+          No accounts. Save a <code>.tdg.json</code> file — that file is the scenario.
         </p>
         <div className="row">
           <Select

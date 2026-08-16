@@ -1,25 +1,13 @@
 import type { MouseEvent } from "react";
-import type { Audience, GeoGeometry, MapDocument, MapFeature, MilSymbol, Point } from "../../schema/types";
+import type { Audience, GeoGeometry, MapDocument, MapFeature, Point } from "../../schema/types";
+import { SymbolMark } from "./MilSymbolMark";
 
-export const FRAME_FOR_AFFILIATION: Record<MilSymbol["affiliation"], MilSymbol["frame"]> = {
-  friendly: "rectangle",
-  hostile: "diamond",
-  neutral: "square",
-  unknown: "cloverleaf",
-};
-
-export const AFFILIATION_COLOR: Record<MilSymbol["affiliation"], string> = {
+export const AFFILIATION_COLOR = {
   friendly: "#1f4f7a",
   hostile: "#8f1d1d",
   neutral: "#2d6a3f",
   unknown: "#5c5346",
-};
-
-function dashFor(confidence: MilSymbol["confidence"]): string | undefined {
-  if (confidence === "suspected") return "7 5";
-  if (confidence === "templated") return "2 4";
-  return undefined;
-}
+} as const;
 
 function pointsOf(geometry: GeoGeometry): [number, number][] {
   if (geometry.type === "Point") return [[geometry.coordinates[0], geometry.coordinates[1]]];
@@ -29,69 +17,6 @@ function pointsOf(geometry: GeoGeometry): [number, number][] {
 
 function toSvgPoints(pts: [number, number][]): string {
   return pts.map(([x, y]) => `${x},${y}`).join(" ");
-}
-
-function Clover({ x, y, size, color, dash }: { x: number; y: number; size: number; color: string; dash?: string }) {
-  const r = size * 0.28;
-  const offsets: [number, number][] = [
-    [0, -r],
-    [r, 0],
-    [0, r],
-    [-r, 0],
-  ];
-  return (
-    <g>
-      {offsets.map(([dx, dy], index) => (
-        <circle key={index} cx={x + dx} cy={y + dy} r={r} fill="#fff" stroke={color} strokeWidth={2} strokeDasharray={dash} />
-      ))}
-    </g>
-  );
-}
-
-export function SymbolMark({ symbol, highlight }: { symbol: MilSymbol; highlight?: boolean }) {
-  const [x, y] = symbol.position.coordinates;
-  const color = AFFILIATION_COLOR[symbol.affiliation];
-  const dash = dashFor(symbol.confidence);
-  const size = 28;
-  const stroke = highlight ? 4 : 2;
-  const frame = symbol.frame || FRAME_FOR_AFFILIATION[symbol.affiliation];
-  return (
-    <g transform={`rotate(${symbol.rotationDeg ?? 0} ${x} ${y})`} style={{ cursor: "pointer" }}>
-      {frame === "diamond" ? (
-        <polygon
-          points={`${x},${y - size} ${x + size},${y} ${x},${y + size} ${x - size},${y}`}
-          fill="#fff"
-          stroke={color}
-          strokeWidth={stroke}
-          strokeDasharray={dash}
-        />
-      ) : frame === "cloverleaf" ? (
-        <Clover x={x} y={y} size={size} color={color} dash={dash} />
-      ) : (
-        <rect
-          x={x - size * 0.7}
-          y={y - size * 0.55}
-          width={size * 1.4}
-          height={size * 1.1}
-          fill="#fff"
-          stroke={color}
-          strokeWidth={stroke}
-          strokeDasharray={dash}
-        />
-      )}
-      {symbol.echelonMarker ? (
-        <text x={x} y={y - size - 4} textAnchor="middle" fontSize={12} fill={color}>
-          {symbol.echelonMarker}
-        </text>
-      ) : null}
-      {symbol.designation ? (
-        <text x={x} y={y + size + 14} textAnchor="middle" fontSize={12} fill="#1b2118">
-          {symbol.designation}
-          {symbol.strengthModifier === "reinforced" ? " (+)" : symbol.strengthModifier === "reduced" ? " (−)" : ""}
-        </text>
-      ) : null}
-    </g>
-  );
 }
 
 export function FeatureShape({
