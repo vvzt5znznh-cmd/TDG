@@ -50,7 +50,10 @@ export function PacketView({ scenario, onChange }: { scenario: Scenario; onChang
         </div>
       ))}
 
-      <NotesForm scenario={scenario} onChange={onChange} />
+      <details className="more-block">
+        <summary>Facilitator notes (discussion, COAs, teaching points)</summary>
+        <NotesForm scenario={scenario} onChange={onChange} />
+      </details>
 
       <details className="more-block">
         <summary>Terrain effects (OCOKA)</summary>

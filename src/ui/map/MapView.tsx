@@ -141,6 +141,8 @@ export function MapView({
   selectedId,
   onSelect,
   onClickPoint,
+  onFinishDraft,
+  draftPoints,
   width = 1600,
   height = 1200,
 }: {
@@ -152,6 +154,8 @@ export function MapView({
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
   onClickPoint?: (point: Point) => void;
+  onFinishDraft?: () => void;
+  draftPoints?: [number, number][];
   width?: number;
   height?: number;
 }) {
@@ -174,6 +178,9 @@ export function MapView({
           className="map-overlay"
           viewBox={`0 0 ${width} ${height}`}
           onClick={handleClick}
+          onDoubleClick={() => {
+            if (draftPoints && draftPoints.length > 0) onFinishDraft?.();
+          }}
           role="img"
           aria-label={map.name}
         >
@@ -192,6 +199,22 @@ export function MapView({
           ))}
           <ScaleBar x={60} y={height - 50} meters={map.scaleBar.meters} lengthPx={map.scaleBar.renderLengthPx} />
           <NorthArrow x={width - 50} y={70} rotationDeg={map.northArrow.rotationDeg} />
+          {draftPoints && draftPoints.length > 0 ? (
+            <g>
+              {draftPoints.length > 1 ? (
+                <polyline
+                  points={draftPoints.map(([dx, dy]) => `${dx},${dy}`).join(" ")}
+                  fill="none"
+                  stroke="#9a2f2a"
+                  strokeWidth={3}
+                  strokeDasharray="8 6"
+                />
+              ) : null}
+              {draftPoints.map(([dx, dy], index) => (
+                <circle key={index} cx={dx} cy={dy} r={7} fill="#9a2f2a" stroke="#fff" strokeWidth={2} />
+              ))}
+            </g>
+          ) : null}
         </svg>
       </div>
       {map.legend.autoGenerate ? (

@@ -2,10 +2,15 @@ import { useMemo } from "react";
 import ms from "milsymbol";
 import type { MilSymbol } from "../../schema/types";
 import { buildSidc, frameForAffiliation } from "../../map/sidc";
+import type { SymbolOptions } from "milsymbol";
 
 ms.setStandard("APP6");
 
-export function symbolDataUrl(symbol: MilSymbol, size = 40): { href: string; anchor: { x: number; y: number }; width: number; height: number } {
+/** milsymbol throws if optional text fields are present but undefined. */
+export function symbolDataUrl(
+  symbol: MilSymbol,
+  size = 40,
+): { href: string; anchor: { x: number; y: number }; width: number; height: number } {
   const sidc =
     symbol.sidc ||
     buildSidc({
@@ -14,15 +19,17 @@ export function symbolDataUrl(symbol: MilSymbol, size = 40): { href: string; anc
       echelon: "platoon",
       functionId: "UCI",
     });
-  const generated = new ms.Symbol(sidc, {
+  const options: SymbolOptions = {
     size,
     standard: "APP6",
-    uniqueDesignation: symbol.designation,
     infoFields: Boolean(symbol.designation),
-    reinforcedReduced:
-      symbol.strengthModifier === "reinforced" ? "+" : symbol.strengthModifier === "reduced" ? "-" : undefined,
-    additionalInformation: symbol.confidence === "templated" ? "?" : undefined,
-  });
+  };
+  if (symbol.designation) options.uniqueDesignation = symbol.designation;
+  if (symbol.strengthModifier === "reinforced") options.reinforcedReduced = "+";
+  if (symbol.strengthModifier === "reduced") options.reinforcedReduced = "-";
+  if (symbol.confidence === "templated") options.additionalInformation = "?";
+
+  const generated = new ms.Symbol(sidc, options);
   const svg = generated.asSVG();
   return {
     href: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
@@ -34,8 +41,21 @@ export function symbolDataUrl(symbol: MilSymbol, size = 40): { href: string; anc
 
 export function SymbolMark({ symbol, highlight }: { symbol: MilSymbol; highlight?: boolean }) {
   const [x, y] = symbol.position.coordinates;
-  const rendered = useMemo(() => symbolDataUrl(symbol, 42), [symbol]);
+  const rendered = useMemo(() => {
+    try {
+      return symbolDataUrl(symbol, 42);
+    } catch {
+      return null;
+    }
+  }, [symbol]);
   const pad = 6;
+  if (!rendered) {
+    return (
+      <g>
+        <circle cx={x} cy={y} r={10} fill="#fff" stroke="#8f1d1d" strokeWidth={2} />
+      </g>
+    );
+  }
   return (
     <g style={{ cursor: "pointer" }}>
       {highlight ? (
@@ -72,12 +92,16 @@ export function SymbolChip({
   onClick: () => void;
 }) {
   const href = useMemo(() => {
-    const generated = new ms.Symbol(sidc, { size: 28, standard: "APP6" });
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(generated.asSVG())}`;
+    try {
+      const generated = new ms.Symbol(sidc, { size: 28, standard: "APP6" });
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(generated.asSVG())}`;
+    } catch {
+      return "";
+    }
   }, [sidc]);
   return (
     <button type="button" className={`symbol-chip ${selected ? "selected" : ""}`} onClick={onClick} title={label}>
-      <img src={href} alt="" />
+      {href ? <img src={href} alt="" /> : null}
       <span>{label}</span>
     </button>
   );

@@ -312,6 +312,15 @@ export function MapEditor({
         ) : null}
       </aside>
       <div>
+        <p className="map-mode">
+          {drawId === "select"
+            ? "Select — click a symbol to select, Delete to remove."
+            : drawId === "symbol"
+              ? `Placing ${UNIT_CATALOG.find((unit) => unit.functionId === functionId)?.label ?? "unit"} — click the map to stamp.`
+              : drawTool && "draw" in drawTool && drawTool.draw !== "point"
+                ? `Drawing ${drawTool.label} — click points, then Finish (or double-click).`
+                : `Placing ${drawTool?.label ?? "point"} — click the map.`}
+        </p>
         <MapView
           map={map}
           imageUrl={imageUrl}
@@ -323,6 +332,8 @@ export function MapEditor({
             if (drawId === "select") setSelectedId(id);
           }}
           onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
+          draftPoints={draft}
+          onFinishDraft={finishDraft}
         />
       </div>
     </div>

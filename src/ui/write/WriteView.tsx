@@ -98,10 +98,7 @@ export function WriteView({ scenario, onChange }: { scenario: Scenario; onChange
 
   return (
     <section className="write-view">
-      <p className="lede">
-        Write the problem. Everything else is optional until you print — and print only needs the handful of fields marked
-        below.
-      </p>
+      <p className="lede">The problem the student has to solve. Map and facilitator notes are the other two tabs.</p>
 
       <Field label="Title">
         <TextInput value={scenario.title} onChange={(title) => onChange({ ...scenario, title })} />
@@ -206,9 +203,10 @@ export function WriteView({ scenario, onChange }: { scenario: Scenario; onChange
         <TextInput value={scenario.requirement.prompt} onChange={(prompt) => onChange({ ...scenario, requirement: { ...scenario.requirement, prompt } })} />
       </Field>
 
-      <h2>Your force</h2>
-      <p className="hint">Names only. Strength and ammo live under Packet if you care.</p>
-      <CompactTaskOrg scenario={scenario} onChange={onChange} />
+      <details className="more-block">
+        <summary>Your force (names)</summary>
+        <CompactTaskOrg scenario={scenario} onChange={onChange} />
+      </details>
 
       <details className="more-block">
         <summary>More (optional)</summary>

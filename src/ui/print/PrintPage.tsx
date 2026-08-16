@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import type { Audience, Scenario } from "../../schema/types";
 import { useDocument } from "../../store/document";
 import { TaskOrgDiagram, TaskOrgList } from "../forces";
@@ -43,6 +43,19 @@ export function PrintDocument({
       <p>
         <strong>Role.</strong> {scenario.requirement.role}
       </p>
+
+      {scenario.dilemma.statement.trim() ? (
+        <>
+          <h2>Dilemma</h2>
+          <p>{scenario.dilemma.statement}</p>
+          {scenario.dilemma.dependencies[0]?.description ? (
+            <p>
+              <strong>Depends on {scenario.dilemma.dependencies[0].kind.replaceAll("_", " ")}.</strong>{" "}
+              {scenario.dilemma.dependencies[0].description}
+            </p>
+          ) : null}
+        </>
+      ) : null}
 
       <h2>Situation</h2>
       <p>{scenario.situation.general}</p>
@@ -176,13 +189,16 @@ export function PrintDocument({
 }
 
 export function PrintPage({ audience }: { audience: Audience }) {
+  const navigate = useNavigate();
   const file = useDocument((state) => state.file);
   const scenario = "dilemma" in file.content ? file.content : null;
   if (!scenario) return <p>Open a scenario first.</p>;
   return (
     <>
       <div className="screen-only">
-        <Link to="/edit">Back to editor</Link>
+        <button type="button" className="btn" onClick={() => navigate("/edit")}>
+          Back to editor
+        </button>
         {" · "}
         <button type="button" className="btn btn-primary" onClick={() => window.print()}>
           Print / Save as PDF
