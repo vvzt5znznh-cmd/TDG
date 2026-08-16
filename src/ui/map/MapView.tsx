@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import type { Audience, ControlMeasure, GeoGeometry, MapDocument, MapFeature, TerrainFeatureKind } from "../../schema/types";
 import { pointsOf, toSvgPoints } from "../../map/geometry";
 import { arrowHeadPoints, controlMeasureStyle, labelAnchor, tickAt } from "../../map/controlGraphics";
-import { baseFeatures, syntheticBaseLayer } from "../../map/mapBase";
+import { baseFeatures, isRasterUnderlay, syntheticBaseLayer } from "../../map/mapBase";
 import { MAP_HEIGHT, MAP_WIDTH } from "../../map/viewport";
 import { SymbolMark } from "./MilSymbolMark";
 
@@ -284,13 +284,14 @@ export function MapScene({
   const layers = map.layers.filter((layer) => audience === "all" || layer.visibleIn.includes(audience));
   const ground = audience === "all" || audience === "student" || audience === "facilitator" ? baseFeatures(map) : [];
   const imageOpacity = map.underlay?.opacity ?? (map.base.kind === "raster" ? map.base.opacity : 1);
+  const tracing = isRasterUnderlay(imageUrl) ? imageUrl : undefined;
 
   return (
     <>
       <rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#e7e2d1" />
-      {imageUrl ? (
+      {tracing ? (
         <image
-          href={imageUrl}
+          href={tracing}
           x={0}
           y={0}
           width={MAP_WIDTH}
@@ -299,7 +300,24 @@ export function MapScene({
           preserveAspectRatio="none"
           pointerEvents="none"
         />
-      ) : null}
+      ) : (
+        <>
+          <rect
+            x={24}
+            y={24}
+            width={MAP_WIDTH - 48}
+            height={MAP_HEIGHT - 48}
+            fill="#efe9d6"
+            stroke="#3d4a32"
+            strokeWidth={4}
+          />
+          {map.name ? (
+            <text x={80} y={70} fontFamily="Georgia, serif" fontSize={28} fill="#3d4a32">
+              {map.name}
+            </text>
+          ) : null}
+        </>
+      )}
       {showGrid ? <MapGrid /> : null}
       <g className="map-base">
         {ground.map((feature) => (

@@ -11,7 +11,7 @@ import {
   patchFeature,
 } from "../../map/mapBase";
 import { buildSidc, ECHELON_MARKER, frameForAffiliation, UNIT_GROUPS, withSyncedSidc } from "../../map/sidc";
-import { defaultViewport, fitViewport, type Viewport } from "../../map/viewport";
+import { defaultViewport, fitViewport, viewportCenter, zoomViewport, type Viewport } from "../../map/viewport";
 import { newId } from "../../schema/ids";
 import type {
   Affiliation,
@@ -142,8 +142,12 @@ export function MapEditor({
       if (event.key === "v" && notTyping(event)) setTool("select");
       if (event.key === "h" && notTyping(event)) setTool("pan");
       if (event.key === "0" && notTyping(event)) setViewport(fitViewport());
-      if (event.key === "+" && notTyping(event)) setViewport((vp) => ({ ...vp, zoom: Math.min(8, vp.zoom * 1.2) }));
-      if (event.key === "-" && notTyping(event)) setViewport((vp) => ({ ...vp, zoom: Math.max(0.4, vp.zoom / 1.2) }));
+      if ((event.key === "+" || event.key === "=") && notTyping(event)) {
+        setViewport((vp) => zoomViewport(vp, 1.25, viewportCenter(vp)));
+      }
+      if ((event.key === "-" || event.key === "_") && notTyping(event)) {
+        setViewport((vp) => zoomViewport(vp, 0.8, viewportCenter(vp)));
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -432,6 +436,7 @@ export function MapEditor({
             <NumberInput
               min={0}
               max={1}
+              step={0.05}
               value={map.underlay?.opacity ?? 1}
               onChange={(opacity) => commit({ ...map, underlay: map.underlay ? { ...map.underlay, opacity } : undefined })}
             />
@@ -496,7 +501,13 @@ export function MapEditor({
           }}
         />
         <div className="map-hud">
+          <button type="button" className="btn" onClick={() => setViewport((vp) => zoomViewport(vp, 0.8, viewportCenter(vp)))}>
+            −
+          </button>
           <span>{Math.round(viewport.zoom * 100)}%</span>
+          <button type="button" className="btn" onClick={() => setViewport((vp) => zoomViewport(vp, 1.25, viewportCenter(vp)))}>
+            +
+          </button>
           <button type="button" className="btn" onClick={() => setViewport(fitViewport())}>
             Fit
           </button>

@@ -30,12 +30,27 @@ export function symbolSidc(symbol: MilSymbol): string {
   return withSyncedSidc(symbol).sidc ?? "SFGPUCI----D";
 }
 
+/** Strip the XML declaration so milsymbol markup can be inlined in the overlay SVG (print-safe). */
+export function inlineSvgMarkup(svg: string): string {
+  return svg.replace(/<\?xml[\s\S]*?\?>/i, "").trim();
+}
+
 export function renderSymbol(symbol: MilSymbol, size = symbol.sizePx ?? DEFAULT_SYMBOL_SIZE) {
   const generated = new ms.Symbol(symbolSidc(symbol), symbolOptions(symbol, size));
   const svg = generated.asSVG();
+  let href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  // Nested SVG data URLs often vanish in print; PNG from canvas survives the print pipeline.
+  if (typeof document !== "undefined") {
+    try {
+      href = generated.asCanvas().toDataURL("image/png");
+    } catch {
+      // jsdom / tests keep the SVG href
+    }
+  }
   return {
-    href: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    href,
     svg,
+    inlineSvg: inlineSvgMarkup(svg),
     anchor: generated.getAnchor(),
     width: generated.getSize().width,
     height: generated.getSize().height,

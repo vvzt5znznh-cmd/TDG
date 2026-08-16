@@ -58,6 +58,16 @@ export function clientToMap(
   return [x, y];
 }
 
+export function viewportCenter(vp: Viewport): [number, number] {
+  const size = viewSize(vp);
+  return [vp.x + size.width / 2, vp.y + size.height / 2];
+}
+
+/** Convert a screen-pixel length to map units at the current camera. */
+export function screenToMapDistance(screenPx: number, viewportWidthPx: number, vp: Viewport): number {
+  return (screenPx / Math.max(viewportWidthPx, 1)) * (MAP_WIDTH / vp.zoom);
+}
+
 export function fitViewport(): Viewport {
   return defaultViewport();
 }

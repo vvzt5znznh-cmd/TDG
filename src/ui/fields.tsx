@@ -1,4 +1,4 @@
-import type { ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useEffect, useState, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 export function Field({
   label,
@@ -42,11 +42,13 @@ export function NumberInput({
   onChange,
   min,
   max,
+  step,
 }: {
   value: number;
   onChange: (value: number) => void;
   min?: number;
   max?: number;
+  step?: number;
 }) {
   return (
     <input
@@ -54,7 +56,41 @@ export function NumberInput({
       value={Number.isFinite(value) ? value : 0}
       min={min}
       max={max}
+      step={step}
       onChange={(event) => onChange(Number(event.target.value))}
+    />
+  );
+}
+
+/** Commits on blur / Enter so typing a label is one undo step, not one per key. */
+export function CommitTextInput({
+  value,
+  onCommit,
+  placeholder,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  function flush() {
+    if (draft !== value) onCommit(draft);
+  }
+
+  return (
+    <input
+      type="text"
+      value={draft}
+      placeholder={placeholder}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={flush}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
     />
   );
 }

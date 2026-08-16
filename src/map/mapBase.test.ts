@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMapDocument } from "../schema/create";
-import { addBaseTerrain, ensureVectorBase, mapImageRef, paperBackgroundSvg } from "./mapBase";
+import { addBaseTerrain, ensureVectorBase, isRasterUnderlay, mapImageRef, paperBackgroundSvg } from "./mapBase";
 import { setVertex } from "./geometry";
 
 describe("editable map base", () => {
@@ -55,9 +55,15 @@ describe("editable map base", () => {
     expect(moved.coordinates[0]?.at(-1)).toEqual([2, 3]);
   });
 
-  it("builds a blank paper underlay without fake terrain", () => {
+  it("treats generated paper SVG as non-raster so print does not nest SVG-in-SVG", () => {
     expect(paperBackgroundSvg("Test")).toContain("Test");
     expect(paperBackgroundSvg()).not.toContain("Schematic");
+    expect(isRasterUnderlay(paperBackgroundSvg("Korsmyr"))).toBe(false);
+    expect(isRasterUnderlay("data:image/png;base64,aaa")).toBe(true);
+    expect(isRasterUnderlay("data:image/jpeg;base64,aaa")).toBe(true);
+    expect(isRasterUnderlay("https://example.test/trace.jpg")).toBe(true);
+    expect(isRasterUnderlay("https://example.test/sheet.svg")).toBe(false);
+    expect(isRasterUnderlay(undefined)).toBe(false);
   });
 
   it("resolves the tracing image from underlay on a vector map", () => {

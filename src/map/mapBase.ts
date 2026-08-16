@@ -28,6 +28,19 @@ export function mapImageRef(map: MapDocument): string | undefined {
   return undefined;
 }
 
+/**
+ * Nested SVG-as-`<image>` often vanishes in print. Only paint raster tracing
+ * photos inside the overlay; paper chrome is native SVG in MapScene.
+ */
+export function isRasterUnderlay(url?: string): boolean {
+  if (!url) return false;
+  const value = url.trim().toLowerCase();
+  if (value.startsWith("data:image/svg")) return false;
+  if (value.includes("image/svg")) return false;
+  if (/\.svg(\?|#|$)/.test(value)) return false;
+  return value.startsWith("data:image/") || /\.(png|jpe?g|gif|webp|bmp)(\?|#|$)/.test(value) || value.startsWith("blob:");
+}
+
 function overlayTerrain(map: MapDocument): TerrainFeature[] {
   const layer = map.layers.find((item) => item.role === "terrain");
   return (layer?.features.filter((feature) => feature.featureType === "terrain") ?? []) as TerrainFeature[];

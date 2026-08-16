@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientToMap, defaultViewport, panViewport, viewBox, zoomViewport } from "./viewport";
+import { clientToMap, defaultViewport, panViewport, screenToMapDistance, viewBox, viewportCenter, zoomViewport } from "./viewport";
 
 describe("viewport", () => {
   it("writes a viewBox from camera", () => {
@@ -19,6 +19,15 @@ describe("viewport", () => {
     const [x, y] = clientToMap({ clientX: 400, clientY: 300 }, rect, defaultViewport());
     expect(x).toBeCloseTo(800);
     expect(y).toBeCloseTo(600);
+  });
+
+  it("scales hit slop with zoom so handles stay clickable", () => {
+    expect(screenToMapDistance(8, 800, defaultViewport())).toBeCloseTo(16);
+    const zoomed = zoomViewport(defaultViewport(), 2, [800, 600]);
+    expect(screenToMapDistance(8, 800, zoomed)).toBeCloseTo(8);
+    const out = zoomViewport(defaultViewport(), 0.5, viewportCenter(defaultViewport()));
+    expect(out.zoom).toBe(0.5);
+    expect(viewportCenter(out)[0]).toBeCloseTo(800);
   });
 
   it("pans in map units", () => {

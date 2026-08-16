@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { editableVertices, pointerDistance, rotateHandlePoint } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
-import { clampViewport, clientToMap, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
+import { clampViewport, clientToMap, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
 import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
 import { MapScene } from "./MapView";
 
@@ -116,11 +116,10 @@ export function MapCanvas({
     return [Math.round(point[0] / step) * step, Math.round(point[1] / step) * step];
   }
 
-  function screenThreshold(): number {
+  function mapPx(screenPx: number): number {
     const svg = svgRef.current;
-    if (!svg) return 8;
-    const rect = svg.getBoundingClientRect();
-    return (DRAG_THRESHOLD_PX / Math.max(rect.width, 1)) * (1600 / viewport.zoom);
+    const width = svg?.getBoundingClientRect().width || 800;
+    return screenToMapDistance(screenPx, width, viewport);
   }
 
   function handlePointerDown(event: ReactPointerEvent<SVGSVGElement>) {
@@ -132,10 +131,11 @@ export function MapCanvas({
       return;
     }
     if (tool !== "select") return;
+    const slop = mapPx(12);
     if (selected?.featureType === "symbol") {
       const [sx, sy] = selected.position.coordinates;
-      const handle = rotateHandlePoint(sx, sy, selected.rotationDeg ?? 0);
-      if (pointerDistance(point, handle) < 14) {
+      const handle = rotateHandlePoint(sx, sy, selected.rotationDeg ?? 0, mapPx(44));
+      if (pointerDistance(point, handle) < slop) {
         onStrokeStart();
         dragRef.current = { kind: "rotate" };
         suppressClickRef.current = true;
@@ -144,7 +144,7 @@ export function MapCanvas({
       }
     }
     if (selected && selected.featureType !== "symbol") {
-      const vertex = pickVertex(selected, point, 14);
+      const vertex = pickVertex(selected, point, slop);
       if (vertex != null) {
         onStrokeStart();
         dragRef.current = { kind: "vertex", index: vertex };
@@ -153,7 +153,7 @@ export function MapCanvas({
         return;
       }
     }
-    const hit = pickFeature(visibleFeatures(map, audience), point);
+    const hit = pickFeature(visibleFeatures(map, audience), point, slop);
     if (hit) {
       onSelect(hit.id);
       dragRef.current = { kind: "press", id: hit.id, start: point, last: point };
@@ -180,7 +180,7 @@ export function MapCanvas({
     const point = mapPoint(event);
     if (!point) return;
     if (drag.kind === "press") {
-      if (pointerDistance(point, drag.start) < screenThreshold()) return;
+      if (pointerDistance(point, drag.start) < mapPx(DRAG_THRESHOLD_PX)) return;
       onStrokeStart();
       onMove(drag.id, point[0] - drag.last[0], point[1] - drag.last[1]);
       dragRef.current = { kind: "move", id: drag.id, last: point };
@@ -220,17 +220,18 @@ export function MapCanvas({
     const snapped = maybeSnap(point);
     if (panning) return;
     if (tool === "select") {
-      const hit = pickFeature(visibleFeatures(map, audience), snapped);
+      const hit = pickFeature(visibleFeatures(map, audience), snapped, mapPx(12));
       onSelect(hit?.id ?? null);
       return;
     }
     onClickPoint({ type: "Point", coordinates: snapped });
   }
 
+  const handleR = mapPx(6);
   const handles = selected && selected.featureType !== "symbol" ? editableVertices(selected.geometry) : [];
   const symbolHandle =
     selected?.featureType === "symbol"
-      ? rotateHandlePoint(selected.position.coordinates[0], selected.position.coordinates[1], selected.rotationDeg ?? 0)
+      ? rotateHandlePoint(selected.position.coordinates[0], selected.position.coordinates[1], selected.rotationDeg ?? 0, mapPx(44))
       : null;
 
   return (
@@ -262,7 +263,7 @@ export function MapCanvas({
         />
         {tool === "select" &&
           handles.map(([hx, hy], index) => (
-            <circle key={index} className="vertex-handle" cx={hx} cy={hy} r={8} fill="#fff" stroke="#9a2f2a" strokeWidth={2} />
+            <circle key={index} className="vertex-handle" cx={hx} cy={hy} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
           ))}
         {tool === "select" && symbolHandle && selected?.featureType === "symbol" ? (
           <g>
@@ -272,9 +273,9 @@ export function MapCanvas({
               x2={symbolHandle[0]}
               y2={symbolHandle[1]}
               stroke="#9a2f2a"
-              strokeWidth={1.5}
+              strokeWidth={handleR / 4}
             />
-            <circle className="rotate-handle" cx={symbolHandle[0]} cy={symbolHandle[1]} r={7} fill="#fff" stroke="#9a2f2a" strokeWidth={2} />
+            <circle className="rotate-handle" cx={symbolHandle[0]} cy={symbolHandle[1]} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
           </g>
         ) : null}
       </svg>

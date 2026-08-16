@@ -1,6 +1,6 @@
 import type { Affiliation, Confidence, ControlMeasure, Echelon, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
 import { echelonFromSidc } from "../../map/sidc";
-import { Field, NumberInput, Select, TextInput } from "../fields";
+import { CommitTextInput, Field, NumberInput, Select } from "../fields";
 
 const AFFILIATION_OPTIONS: { value: Affiliation; label: string }[] = [
   { value: "friendly", label: "Friendly" },
@@ -49,7 +49,7 @@ export function Inspector({
       <aside className="map-inspector">
         <div className="section-kicker">This unit</div>
         <Field label="Designation">
-          <TextInput value={symbol.designation ?? ""} onChange={(designation) => onPatch({ designation })} placeholder="2. plut" />
+          <CommitTextInput value={symbol.designation ?? ""} onCommit={(designation) => onPatch({ designation })} placeholder="2. plut" />
         </Field>
         <Field label="Whose">
           <Select value={symbol.affiliation} options={AFFILIATION_OPTIONS} onChange={(affiliation) => onPatch({ affiliation })} />
@@ -69,7 +69,7 @@ export function Inspector({
           Task force
         </label>
         <Field label="Higher formation">
-          <TextInput value={symbol.higherFormation ?? ""} onChange={(higherFormation) => onPatch({ higherFormation })} placeholder="2. coy" />
+          <CommitTextInput value={symbol.higherFormation ?? ""} onCommit={(higherFormation) => onPatch({ higherFormation })} placeholder="2. coy" />
         </Field>
         <Field label="Strength">
           <Select
@@ -105,7 +105,7 @@ export function Inspector({
     <aside className="map-inspector">
       <div className="section-kicker">{kind}</div>
       <Field label="Label">
-        <TextInput value={label} onChange={(value) => onPatch({ label: value })} />
+        <CommitTextInput value={label} onCommit={(value) => onPatch({ label: value })} />
       </Field>
       <p className="hint">Drag to move. Drag the white corners to reshape.</p>
       <button type="button" className="btn btn-danger" onClick={onDelete}>

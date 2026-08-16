@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { symbolDataUrl } from "./symbolRender";
+import { inlineSvgMarkup, symbolDataUrl } from "./symbolRender";
 import type { MilSymbol } from "../schema/types";
 
 function sample(overrides: Partial<MilSymbol> = {}): MilSymbol {
@@ -42,5 +42,12 @@ describe("milsymbol rendering", () => {
   it("keeps a shipped hostile platoon SIDC when rebuilding", () => {
     const rendered = symbolDataUrl(sample());
     expect(rendered.valid).toBe(true);
+  });
+
+  it("strips the XML declaration so symbol markup can sit in the overlay SVG", () => {
+    const rendered = symbolDataUrl(sample());
+    expect(rendered.inlineSvg.startsWith("<svg")).toBe(true);
+    expect(rendered.inlineSvg).not.toMatch(/<\?xml/);
+    expect(inlineSvgMarkup("<?xml version=\"1.0\"?><svg/>")).toBe("<svg/>");
   });
 });

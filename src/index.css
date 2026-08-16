@@ -534,6 +534,13 @@ textarea {
     inset: auto;
     width: 100%;
     height: auto;
+    aspect-ratio: 1600 / 1200;
+  }
+
+  .map-stage svg.map-overlay image,
+  .map-stage svg.map-overlay rect {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   @page {
