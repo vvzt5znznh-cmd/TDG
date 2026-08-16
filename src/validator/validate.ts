@@ -1,6 +1,7 @@
 import { isTimeExpiredOutcome } from "../schema/presets";
 import { allDesignations, allTaskOrgIds, flattenTaskOrg } from "../schema/taskOrg";
 import type { MapDocument, MapFeature, Scenario } from "../schema/types";
+import { syntheticBaseLayer } from "../map/mapBase";
 
 export type IssueLevel = "error" | "warning";
 
@@ -81,6 +82,10 @@ export function loadBearingFeatureIds(scenario: Scenario): Set<string> {
 export function allMapFeatures(maps: MapDocument[]): { feature: MapFeature; layer: MapDocument["layers"][number]; map: MapDocument }[] {
   const out: { feature: MapFeature; layer: MapDocument["layers"][number]; map: MapDocument }[] = [];
   for (const map of maps) {
+    const ground = syntheticBaseLayer(map);
+    for (const feature of ground.features) {
+      out.push({ feature, layer: ground, map });
+    }
     for (const layer of map.layers) {
       for (const feature of layer.features) {
         out.push({ feature, layer, map });
@@ -306,6 +311,13 @@ export function withDerivedLoadBearing(scenario: Scenario): Scenario {
     ...scenario,
     maps: scenario.maps.map((map) => ({
       ...map,
+      base:
+        map.base.kind === "vector"
+          ? {
+              kind: "vector" as const,
+              features: map.base.features.map((feature) => ({ ...feature, loadBearing: ids.has(feature.id) })),
+            }
+          : map.base,
       layers: map.layers.map((layer) => ({
         ...layer,
         features: layer.features.map((feature) =>

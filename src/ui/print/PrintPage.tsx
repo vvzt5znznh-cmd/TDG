@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { mapImageRef } from "../../map/mapBase";
 import type { Audience, Scenario } from "../../schema/types";
 import { useDocument } from "../../store/document";
 import { TaskOrgDiagram, TaskOrgList } from "../forces";
@@ -24,7 +25,7 @@ export function PrintDocument({
   audience: Audience;
 }) {
   const map = scenario.maps[0];
-  const imageRef = map && map.base.kind === "raster" ? map.base.imageRef : "";
+  const imageRef = map ? mapImageRef(map) ?? "" : "";
   const terrain = scenario.terrain;
   const facilitator = audience === "facilitator";
 

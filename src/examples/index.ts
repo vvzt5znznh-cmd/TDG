@@ -1,4 +1,5 @@
-import { createScenarioFile, notionalBaseMapSvg } from "../schema/create";
+import { mapImageRef, paperBackgroundSvg } from "../map/mapBase";
+import { createScenarioFile } from "../schema/create";
 import { newId } from "../schema/ids";
 import { buildOutcomeStates } from "../schema/presets";
 import type { MissionType, Scenario, TDGFile } from "../schema/types";
@@ -14,13 +15,13 @@ export interface ShippedExample {
 
 function imageRefOf(scenario: Scenario): string {
   const map = scenario.maps[0];
-  return map && map.base.kind === "raster" ? map.base.imageRef : `img_${scenario.id}`;
+  return (map && mapImageRef(map)) ?? `img_${scenario.id}`;
 }
 
 function pack(scenario: Scenario, summary: string): ShippedExample {
   scenario.id = newId();
   const imageRef = imageRefOf(scenario);
-  const file = createScenarioFile(scenario, { [imageRef]: notionalBaseMapSvg(scenario.title) });
+  const file = createScenarioFile(scenario, { [imageRef]: paperBackgroundSvg(scenario.title) });
   return {
     id: scenario.id,
     title: scenario.title,

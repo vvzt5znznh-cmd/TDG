@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
 import { readFileAsDataUrl } from "../../io/files";
+import { setVertex } from "../../map/geometry";
+import {
+  addBaseTerrain,
+  allGroundAndOverlayFeatures,
+  deleteFeature,
+  ensureVectorBase,
+  mapImageRef,
+  patchFeature,
+} from "../../map/mapBase";
 import { buildSidc, ECHELON_MARKER, frameForAffiliation, UNIT_CATALOG } from "../../map/sidc";
 import { newId } from "../../schema/ids";
 import type {
@@ -10,7 +19,9 @@ import type {
   Echelon,
   MapDocument,
   MapFeature,
+  Point,
   Scenario,
+  TerrainFeature,
   TerrainFeatureKind,
 } from "../../schema/types";
 import { loadBearingFeatureIds } from "../../validator/validate";
@@ -77,6 +88,14 @@ export function MapEditor({
   const [draft, setDraft] = useState<[number, number][]>([]);
 
   useEffect(() => {
+    if (!map) return;
+    const next = ensureVectorBase(map);
+    if (next !== map) onChange(replaceMap(scenario, next));
+    // Promote once when a raster file is opened; ensureVectorBase returns the same object afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map?.id, map?.base.kind]);
+
+  useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setDraft([]);
@@ -94,23 +113,15 @@ export function MapEditor({
 
   if (!map) return <p>No map on this scenario.</p>;
 
-  const imageRef = map.base.kind === "raster" ? map.base.imageRef : "";
+  const imageRef = mapImageRef(map) ?? "";
   const imageUrl = imageRef ? assets?.[imageRef] : undefined;
   const loadBearingIds = loadBearingFeatureIds(scenario);
-  const selected = map.layers.flatMap((layer) => layer.features).find((feature) => feature.id === selectedId);
+  const selected = allGroundAndOverlayFeatures(map).find((feature) => feature.id === selectedId);
   const drawTool = DRAW_TOOLS.find((tool) => tool.id === drawId);
 
   function deleteSelected() {
     if (!selectedId || !map) return;
-    onChange(
-      replaceMap(scenario, {
-        ...map,
-        layers: map.layers.map((layer) => ({
-          ...layer,
-          features: layer.features.filter((feature) => feature.id !== selectedId),
-        })),
-      }),
-    );
+    onChange(replaceMap(scenario, deleteFeature(map, selectedId)));
     setSelectedId(null);
   }
 
@@ -133,7 +144,10 @@ export function MapEditor({
   }
 
   function commitPoint(point: [number, number]) {
-    if (drawId === "select") return;
+    if (drawId === "select") {
+      setSelectedId(null);
+      return;
+    }
     if (drawId === "symbol") {
       placeSymbol(point);
       return;
@@ -160,29 +174,58 @@ export function MapEditor({
     if (!map || !drawTool || drawTool.id === "select" || drawTool.draw === "point") return;
     const geometry = geometryFromDraft(drawTool.draw, draft);
     if (!geometry) return;
-    const feature: MapFeature =
-      "terrain" in drawTool
-        ? { featureType: "terrain", id: newId(), kind: drawTool.terrain, geometry, label: label || drawTool.label }
-        : { featureType: "control_measure", id: newId(), kind: drawTool.control, geometry, label: label || drawTool.label };
-    const role = "terrain" in drawTool ? "terrain" : "control_measures";
-    onChange(replaceMap(scenario, addFeature(map, role, feature)));
+    if ("terrain" in drawTool) {
+      const feature: TerrainFeature = {
+        featureType: "terrain",
+        id: newId(),
+        kind: drawTool.terrain,
+        geometry,
+        label: label || drawTool.label,
+      };
+      onChange(replaceMap(scenario, addBaseTerrain(map, feature)));
+    } else {
+      const feature: MapFeature = {
+        featureType: "control_measure",
+        id: newId(),
+        kind: drawTool.control,
+        geometry,
+        label: label || drawTool.label,
+      };
+      onChange(replaceMap(scenario, addFeature(map, "control_measures", feature)));
+    }
     setDraft([]);
+  }
+
+  function moveVertex(featureId: string, vertexIndex: number, point: Point) {
+    if (!map) return;
+    const feature = allGroundAndOverlayFeatures(map).find((item) => item.id === featureId);
+    if (!feature || !("geometry" in feature)) return;
+    const geometry = setVertex(feature.geometry, vertexIndex, point.coordinates);
+    onChange(replaceMap(scenario, patchFeature(map, featureId, { geometry })));
   }
 
   async function onUpload(files: FileList | null) {
     const file = files?.[0];
-    if (!file || !map || map.base.kind !== "raster") return;
-    onAsset(map.base.imageRef, await readFileAsDataUrl(file));
+    if (!file || !map) return;
+    const promoted = ensureVectorBase(map);
+    const ref = promoted.underlay?.imageRef ?? `img_${newId()}`;
+    onAsset(ref, await readFileAsDataUrl(file));
+    onChange(
+      replaceMap(scenario, {
+        ...promoted,
+        underlay: { imageRef: ref, opacity: promoted.underlay?.opacity ?? 1 },
+      }),
+    );
   }
 
   return (
     <div className="map-workspace">
       <aside className="map-rail">
         <label className="btn btn-primary" style={{ width: "100%", textAlign: "center" }}>
-          Upload map image
+          Upload tracing image
           <input type="file" accept="image/*" hidden onChange={(event) => void onUpload(event.target.files)} />
         </label>
-        <p className="hint">Scan, sketch photo, or screenshot. Then stamp symbols onto it.</p>
+        <p className="hint">Optional. Sketch photo or scan to trace. Woods, swamp, water, and roads are the map — select them and drag the corners.</p>
 
         <div className="section-kicker">Unit (APP-6)</div>
         <Field label="Whose">
@@ -306,15 +349,38 @@ export function MapEditor({
           <Field label="North rotation">
             <NumberInput value={map.northArrow.rotationDeg} onChange={(rotationDeg) => onChange(replaceMap(scenario, { ...map, northArrow: { rotationDeg } }))} />
           </Field>
+          <Field label="Tracing opacity">
+            <NumberInput
+              min={0}
+              max={1}
+              value={map.underlay?.opacity ?? 1}
+              onChange={(opacity) =>
+                onChange(
+                  replaceMap(scenario, {
+                    ...map,
+                    underlay: map.underlay ? { ...map.underlay, opacity } : undefined,
+                  }),
+                )
+              }
+            />
+          </Field>
         </details>
         {selected?.featureType === "symbol" ? (
           <p className="hint">Selected {selected.designation || selected.sidc || "symbol"}</p>
+        ) : null}
+        {selected && (selected.featureType === "terrain" || selected.featureType === "control_measure") ? (
+          <Field label="Selected label">
+            <TextInput
+              value={selected.label ?? ""}
+              onChange={(value) => onChange(replaceMap(scenario, patchFeature(map, selected.id, { label: value })))}
+            />
+          </Field>
         ) : null}
       </aside>
       <div>
         <p className="map-mode">
           {drawId === "select"
-            ? "Select — click a symbol to select, Delete to remove."
+            ? "Select — click ground or a symbol. Drag corners to reshape. Delete to remove."
             : drawId === "symbol"
               ? `Placing ${UNIT_CATALOG.find((unit) => unit.functionId === functionId)?.label ?? "unit"} — click the map to stamp.`
               : drawTool && "draw" in drawTool && drawTool.draw !== "point"
@@ -334,6 +400,7 @@ export function MapEditor({
           onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
           draftPoints={draft}
           onFinishDraft={finishDraft}
+          onMoveVertex={drawId === "select" ? moveVertex : undefined}
         />
       </div>
     </div>

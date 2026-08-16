@@ -339,6 +339,11 @@ const baseLayerSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+export const mapUnderlaySchema = z.object({
+  imageRef: z.string(),
+  opacity: z.number().min(0).max(1),
+});
+
 export const mapDocumentSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -350,6 +355,7 @@ export const mapDocumentSchema = z.object({
     rotationDeg: z.number(),
   }),
   base: baseLayerSchema,
+  underlay: mapUnderlaySchema.optional(),
   layers: z.array(layerSchema),
   legend: z.object({
     autoGenerate: z.boolean(),

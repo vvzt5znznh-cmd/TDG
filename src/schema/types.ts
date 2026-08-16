@@ -360,12 +360,20 @@ export type BaseLayer =
   | { kind: "raster"; imageRef: string; opacity: number }
   | { kind: "vector"; features: TerrainFeature[] };
 
+/** Optional tracing image under the vector ground (paper, sketch, or uploaded map). */
+export interface MapUnderlay {
+  imageRef: string;
+  opacity: number;
+}
+
 export interface MapDocument {
   id: string;
   name: string;
   scaleBar: { meters: number; renderLengthPx: number };
   northArrow: { rotationDeg: number };
+  /** Vector ground is the editable map. Raster `base` is legacy; the editor promotes it. */
   base: BaseLayer;
+  underlay?: MapUnderlay;
   layers: Layer[];
   legend: { autoGenerate: boolean; manualEntries?: LegendEntry[] };
 }

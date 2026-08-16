@@ -117,33 +117,36 @@ export function makeValidScenario(): Scenario {
     },
   };
 
-  const terrainLayer = layer(scenario, "terrain");
   const controlLayer = layer(scenario, "control_measures");
   const enemyKnown = layer(scenario, "enemy_known");
-
-  terrainLayer.features = [
-    {
-      featureType: "terrain",
-      id: swampId,
-      kind: "wetland",
-      geometry: { type: "Polygon", coordinates: [[[200, 400], [500, 400], [500, 700], [200, 700], [200, 400]]] },
-      label: "Western swamp",
-    },
-    {
-      featureType: "terrain",
-      id: roadId,
-      kind: "road",
-      geometry: { type: "LineString", coordinates: [[400, 900], [420, 200]] },
-      label: "Route NORTH",
-    },
-    {
-      featureType: "terrain",
-      id: woodsId,
-      kind: "woods",
-      geometry: { type: "Polygon", coordinates: [[[900, 300], [1200, 300], [1200, 560], [900, 560], [900, 300]]] },
-      label: "East woods",
-    },
-  ];
+  const map = scenario.maps[0];
+  if (!map) throw new Error("Missing map");
+  map.base = {
+    kind: "vector",
+    features: [
+      {
+        featureType: "terrain",
+        id: swampId,
+        kind: "wetland",
+        geometry: { type: "Polygon", coordinates: [[[200, 400], [500, 400], [500, 700], [200, 700], [200, 400]]] },
+        label: "Western swamp",
+      },
+      {
+        featureType: "terrain",
+        id: roadId,
+        kind: "road",
+        geometry: { type: "LineString", coordinates: [[400, 900], [420, 200]] },
+        label: "Route NORTH",
+      },
+      {
+        featureType: "terrain",
+        id: woodsId,
+        kind: "woods",
+        geometry: { type: "Polygon", coordinates: [[[900, 300], [1200, 300], [1200, 560], [900, 560], [900, 300]]] },
+        label: "East woods",
+      },
+    ],
+  };
   controlLayer.features = [
     {
       featureType: "control_measure",

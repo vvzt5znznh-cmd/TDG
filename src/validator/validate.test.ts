@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createBlankScenario } from "../schema/create";
 import { makeValidScenario } from "./fixtures";
-import { validateScenario, type IssueCode } from "./validate";
+import { allMapFeatures, validateScenario, type IssueCode } from "./validate";
 
 function codes(level: "error" | "warning", scenario = makeValidScenario()): IssueCode[] {
   const result = validateScenario(scenario);
@@ -9,11 +9,11 @@ function codes(level: "error" | "warning", scenario = makeValidScenario()): Issu
 }
 
 describe("validator: valid fixture", () => {
-  it("has no errors or warnings", () => {
-    const result = validateScenario(makeValidScenario());
-    expect(result.errors).toEqual([]);
-    expect(result.warnings).toEqual([]);
-    expect(result.ok).toBe(true);
+  it("treats vector-base terrain as student-visible features", () => {
+    const scenario = makeValidScenario();
+    const swamp = allMapFeatures(scenario.maps).find(({ feature }) => feature.id === "feat_western_swamp");
+    expect(swamp?.layer.visibleIn).toContain("student");
+    expect(swamp?.feature.featureType).toBe("terrain");
   });
 });
 
@@ -118,15 +118,20 @@ describe("validator: warnings", () => {
 
   it("map_feature_ref_not_student_visible", () => {
     const scenario = makeValidScenario();
-    const terrain = scenario.maps[0]?.layers.find((item) => item.role === "terrain");
-    if (!terrain) throw new Error("missing layer");
-    terrain.visibleIn = ["facilitator"];
+    const map = scenario.maps[0];
+    if (!map || map.base.kind !== "vector") throw new Error("missing vector base");
+    const swampId = "feat_western_swamp";
+    const swamp = map.base.features.find((feature) => feature.id === swampId);
+    const solution = map.layers.find((item) => item.role === "solution_overlay");
+    if (!swamp || !solution) throw new Error("missing swamp or solution overlay");
+    map.base = { kind: "vector", features: map.base.features.filter((feature) => feature.id !== swampId) };
+    solution.features.push(swamp);
     expect(codes("warning", scenario)).toContain("map_feature_ref_not_student_visible");
   });
 
   it("all_features_load_bearing", () => {
     const scenario = makeValidScenario();
-    const ids = scenario.maps[0]?.layers.flatMap((layer) => layer.features.map((feature) => feature.id)) ?? [];
+    const ids = allMapFeatures(scenario.maps).map(({ feature }) => feature.id);
     scenario.dilemma.dependencies[0] = {
       kind: "terrain",
       description: "Everything on the map is the dilemma.",

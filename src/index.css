@@ -432,6 +432,10 @@ textarea {
   filter: grayscale(1) contrast(1.08);
 }
 
+.vertex-handle {
+  cursor: grab;
+}
+
 .map-toolbar,
 .layer-list {
   display: flex;

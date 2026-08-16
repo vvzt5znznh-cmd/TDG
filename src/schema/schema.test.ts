@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { mapImageRef } from "../map/mapBase";
 import { APP_NAME, SCHEMA_VERSION } from "./constants";
 import { createNewFile } from "./create";
 import { migrate } from "./migrate";
@@ -41,12 +42,13 @@ describe("parse and serialize", () => {
     expect(reparsed.unknownKeys).toEqual(parsed.unknownKeys);
   });
 
-  it("preserves an embedded raster asset", () => {
+  it("creates a vector base with a paper underlay asset", () => {
     const file = createNewFile();
-    const imageRef =
-      "dilemma" in file.content && file.content.maps[0]?.base.kind === "raster"
-        ? file.content.maps[0].base.imageRef
-        : "";
+    if (!("dilemma" in file.content)) throw new Error("expected scenario");
+    const map = file.content.maps[0];
+    expect(map?.underlay?.imageRef).toBeTruthy();
+    expect(map?.base.kind).toBe("vector");
+    const imageRef = map ? mapImageRef(map) ?? "" : "";
     expect(file.assets?.[imageRef]?.startsWith("data:image/")).toBe(true);
     const parsed = parseTDGFileText(serializeTDGFile(file));
     expect(parsed.assets?.[imageRef]).toBe(file.assets?.[imageRef]);

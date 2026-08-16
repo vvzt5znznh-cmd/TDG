@@ -1,5 +1,7 @@
-import type { MouseEvent } from "react";
-import type { Audience, GeoGeometry, MapDocument, MapFeature, Point } from "../../schema/types";
+import { useRef, type PointerEvent as ReactPointerEvent, type MouseEvent } from "react";
+import { editableVertices, pointsOf, toSvgPoints } from "../../map/geometry";
+import { baseFeatures, syntheticBaseLayer } from "../../map/mapBase";
+import type { Audience, GeoGeometry, MapDocument, MapFeature, Point, TerrainFeatureKind } from "../../schema/types";
 import { SymbolMark } from "./MilSymbolMark";
 
 export const AFFILIATION_COLOR = {
@@ -9,14 +11,27 @@ export const AFFILIATION_COLOR = {
   unknown: "#5c5346",
 } as const;
 
-function pointsOf(geometry: GeoGeometry): [number, number][] {
-  if (geometry.type === "Point") return [[geometry.coordinates[0], geometry.coordinates[1]]];
-  if (geometry.type === "LineString") return geometry.coordinates.map(([x, y]) => [x, y]);
-  return geometry.coordinates[0]?.map(([x, y]) => [x, y]) ?? [];
-}
+const TERRAIN_PAINT: Record<TerrainFeatureKind, { color: string; fill: string; width: number }> = {
+  contour: { color: "#8a6a40", fill: "#8a6a40", width: 1.5 },
+  spot_elevation: { color: "#5a4a38", fill: "#5a4a38", width: 2 },
+  woods: { color: "#3d4a32", fill: "#5d7a52", width: 2 },
+  water: { color: "#2d4a62", fill: "#6a8fa8", width: 2 },
+  wetland: { color: "#2d5a4e", fill: "#6a9a88", width: 2 },
+  built_up: { color: "#5a5248", fill: "#b8aea0", width: 2 },
+  road: { color: "#6b5344", fill: "#6b5344", width: 8 },
+  trail: { color: "#8a6a50", fill: "#8a6a50", width: 4 },
+  bridge: { color: "#4a4038", fill: "#4a4038", width: 8 },
+  custom: { color: "#3e4c34", fill: "#3e4c34", width: 2 },
+};
 
-function toSvgPoints(pts: [number, number][]): string {
-  return pts.map(([x, y]) => `${x},${y}`).join(" ");
+function featurePaint(feature: MapFeature, loadBearing?: boolean, highlight?: boolean) {
+  if (loadBearing) return { color: "#9a2f2a", fill: "#9a2f2a", width: 4 };
+  if (feature.featureType === "terrain") {
+    const paint = TERRAIN_PAINT[feature.kind];
+    return highlight ? { ...paint, width: paint.width + 2 } : paint;
+  }
+  const color = feature.featureType === "control_measure" ? "#1b2118" : "#3e4c34";
+  return { color, fill: color, width: highlight ? 4 : 2 };
 }
 
 export function FeatureShape({
@@ -33,15 +48,14 @@ export function FeatureShape({
   }
   const pts = pointsOf(feature.geometry);
   if (pts.length === 0) return null;
-  const color = loadBearing ? "#9a2f2a" : feature.featureType === "control_measure" ? "#1b2118" : "#3e4c34";
-  const width = loadBearing || highlight ? 4 : 2;
+  const paint = featurePaint(feature, loadBearing, highlight);
   if (feature.geometry.type === "Point") {
     const [x, y] = pts[0] ?? [0, 0];
     return (
       <g>
-        <circle cx={x} cy={y} r={7} fill="#fff" stroke={color} strokeWidth={width} />
+        <circle cx={x} cy={y} r={7} fill="#fff" stroke={paint.color} strokeWidth={paint.width} />
         {"label" in feature && feature.label ? (
-          <text x={x + 10} y={y - 8} fontSize={14} fontFamily="serif" fill={color}>
+          <text x={x + 10} y={y - 8} fontSize={14} fontFamily="serif" fill={paint.color}>
             {feature.label}
           </text>
         ) : null}
@@ -51,9 +65,9 @@ export function FeatureShape({
   if (feature.geometry.type === "LineString") {
     return (
       <g>
-        <polyline points={toSvgPoints(pts)} fill="none" stroke={color} strokeWidth={width} />
+        <polyline points={toSvgPoints(pts)} fill="none" stroke={paint.color} strokeWidth={paint.width} />
         {"label" in feature && feature.label && pts[0] ? (
-          <text x={pts[0][0]} y={pts[0][1] - 8} fontSize={13} fill={color}>
+          <text x={pts[0][0]} y={pts[0][1] - 8} fontSize={13} fill={paint.color}>
             {feature.label}
           </text>
         ) : null}
@@ -62,9 +76,9 @@ export function FeatureShape({
   }
   return (
     <g>
-      <polygon points={toSvgPoints(pts)} fill={color} fillOpacity={0.18} stroke={color} strokeWidth={width} />
+      <polygon points={toSvgPoints(pts)} fill={paint.fill} fillOpacity={0.42} stroke={paint.color} strokeWidth={paint.width} />
       {"label" in feature && feature.label && pts[0] ? (
-        <text x={pts[0][0]} y={pts[0][1] + 16} fontSize={13} fill={color}>
+        <text x={pts[0][0]} y={pts[0][1] + 16} fontSize={13} fill={paint.color}>
           {feature.label}
         </text>
       ) : null}
@@ -99,7 +113,8 @@ export function ScaleBar({ x, y, meters, lengthPx }: { x: number; y: number; met
 export function usedLegend(map: MapDocument, audience: Audience | "all") {
   const entries: { id: string; label: string; color: string }[] = [];
   const seen = new Set<string>();
-  for (const layer of map.layers) {
+  const layers = [syntheticBaseLayer(map), ...map.layers];
+  for (const layer of layers) {
     if (audience !== "all" && !layer.visibleIn.includes(audience)) continue;
     for (const feature of layer.features) {
       if (feature.featureType === "symbol") {
@@ -120,7 +135,7 @@ export function usedLegend(map: MapDocument, audience: Audience | "all") {
         const key = `t-${feature.kind}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        entries.push({ id: key, label: feature.kind.replaceAll("_", " "), color: "#3e4c34" });
+        entries.push({ id: key, label: feature.kind.replaceAll("_", " "), color: TERRAIN_PAINT[feature.kind].fill });
       }
     }
   }
@@ -130,6 +145,13 @@ export function usedLegend(map: MapDocument, audience: Audience | "all") {
     }
   }
   return entries;
+}
+
+function clientToMap(event: { clientX: number; clientY: number }, svg: SVGSVGElement, width: number, height: number): [number, number] {
+  const rect = svg.getBoundingClientRect();
+  const x = ((event.clientX - rect.left) / rect.width) * width;
+  const y = ((event.clientY - rect.top) / rect.height) * height;
+  return [x, y];
 }
 
 export function MapView({
@@ -142,6 +164,7 @@ export function MapView({
   onSelect,
   onClickPoint,
   onFinishDraft,
+  onMoveVertex,
   draftPoints,
   width = 1600,
   height = 1200,
@@ -155,26 +178,54 @@ export function MapView({
   onSelect?: (id: string | null) => void;
   onClickPoint?: (point: Point) => void;
   onFinishDraft?: () => void;
+  onMoveVertex?: (featureId: string, vertexIndex: number, point: Point) => void;
   draftPoints?: [number, number][];
   width?: number;
   height?: number;
 }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const dragRef = useRef<{ id: string; index: number } | null>(null);
+  const suppressClickRef = useRef(false);
   const layers = map.layers.filter((layer) => audience === "all" || layer.visibleIn.includes(audience));
+  const ground = audience === "all" || audience === "student" || audience === "facilitator" ? baseFeatures(map) : [];
+  const imageOpacity = map.underlay?.opacity ?? (map.base.kind === "raster" ? map.base.opacity : 1);
+
+  const selectedFeature =
+    selectedId == null
+      ? undefined
+      : [...ground, ...layers.flatMap((layer) => layer.features)].find((feature) => feature.id === selectedId);
+  const handles =
+    onMoveVertex && selectedFeature && "geometry" in selectedFeature ? editableVertices(selectedFeature.geometry) : [];
 
   function handleClick(event: MouseEvent<SVGSVGElement>) {
-    if (!onClickPoint) return;
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (dragRef.current || !onClickPoint) return;
     const svg = event.currentTarget;
-    const rect = svg.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * width;
-    const y = ((event.clientY - rect.top) / rect.height) * height;
+    const [x, y] = clientToMap(event, svg, width, height);
     onClickPoint({ type: "Point", coordinates: [x, y] });
+  }
+
+  function moveDrag(event: ReactPointerEvent) {
+    const current = dragRef.current;
+    const svg = svgRef.current;
+    if (!current || !svg || !onMoveVertex) return;
+    const [x, y] = clientToMap(event, svg, width, height);
+    onMoveVertex(current.id, current.index, { type: "Point", coordinates: [x, y] });
   }
 
   return (
     <div>
       <div className={`map-stage ${greyscale ? "greyscale" : ""}`}>
-        {imageUrl ? <img src={imageUrl} alt={map.name} /> : <div style={{ aspectRatio: `${width} / ${height}`, background: "#e7e2d1" }} />}
+        {imageUrl ? (
+          <img src={imageUrl} alt={map.name} style={{ opacity: imageOpacity }} />
+        ) : (
+          <div style={{ aspectRatio: `${width} / ${height}`, background: "#e7e2d1" }} />
+        )}
         <svg
+          ref={svgRef}
           className="map-overlay"
           viewBox={`0 0 ${width} ${height}`}
           onClick={handleClick}
@@ -184,10 +235,33 @@ export function MapView({
           role="img"
           aria-label={map.name}
         >
+          <g className="map-base">
+            {ground.map((feature) => (
+              <g
+                key={feature.id}
+                onClick={(event) => {
+                  if (onMoveVertex) event.stopPropagation();
+                  onSelect?.(feature.id);
+                }}
+              >
+                <FeatureShape
+                  feature={feature}
+                  highlight={selectedId === feature.id}
+                  loadBearing={loadBearingIds?.has(feature.id)}
+                />
+              </g>
+            ))}
+          </g>
           {layers.map((layer) => (
             <g key={layer.id}>
               {layer.features.map((feature) => (
-                <g key={feature.id} onClick={(event) => { event.stopPropagation(); onSelect?.(feature.id); }}>
+                <g
+                  key={feature.id}
+                  onClick={(event) => {
+                    if (onMoveVertex) event.stopPropagation();
+                    onSelect?.(feature.id);
+                  }}
+                >
                   <FeatureShape
                     feature={feature}
                     highlight={selectedId === feature.id}
@@ -212,6 +286,39 @@ export function MapView({
               ) : null}
               {draftPoints.map(([dx, dy], index) => (
                 <circle key={index} cx={dx} cy={dy} r={7} fill="#9a2f2a" stroke="#fff" strokeWidth={2} />
+              ))}
+            </g>
+          ) : null}
+          {selectedId && handles.length > 0 ? (
+            <g>
+              {handles.map(([hx, hy], index) => (
+                <circle
+                  key={`${selectedId}-${index}`}
+                  className="vertex-handle"
+                  cx={hx}
+                  cy={hy}
+                  r={8}
+                  fill="#fff"
+                  stroke="#9a2f2a"
+                  strokeWidth={2}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    event.preventDefault();
+                    dragRef.current = { id: selectedId, index };
+                    suppressClickRef.current = true;
+                    (event.target as SVGCircleElement).setPointerCapture?.(event.pointerId);
+                  }}
+                  onPointerMove={(event) => {
+                    if (dragRef.current) moveDrag(event);
+                  }}
+                  onPointerUp={(event) => {
+                    event.stopPropagation();
+                    dragRef.current = null;
+                    window.setTimeout(() => {
+                      dragRef.current = null;
+                    }, 0);
+                  }}
+                />
               ))}
             </g>
           ) : null}
