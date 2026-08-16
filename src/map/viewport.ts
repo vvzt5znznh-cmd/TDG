@@ -1,0 +1,63 @@
+export const MAP_WIDTH = 1600;
+export const MAP_HEIGHT = 1200;
+
+export interface Viewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export function defaultViewport(): Viewport {
+  return { x: 0, y: 0, zoom: 1 };
+}
+
+export function viewSize(vp: Viewport): { width: number; height: number } {
+  return { width: MAP_WIDTH / vp.zoom, height: MAP_HEIGHT / vp.zoom };
+}
+
+export function viewBox(vp: Viewport): string {
+  const size = viewSize(vp);
+  return `${vp.x} ${vp.y} ${size.width} ${size.height}`;
+}
+
+export function clampViewport(vp: Viewport): Viewport {
+  const zoom = Math.min(8, Math.max(0.4, vp.zoom));
+  const size = { width: MAP_WIDTH / zoom, height: MAP_HEIGHT / zoom };
+  const x = Math.min(Math.max(vp.x, -size.width * 0.25), MAP_WIDTH - size.width * 0.75);
+  const y = Math.min(Math.max(vp.y, -size.height * 0.25), MAP_HEIGHT - size.height * 0.75);
+  return { x, y, zoom };
+}
+
+export function panViewport(vp: Viewport, dx: number, dy: number): Viewport {
+  return clampViewport({ ...vp, x: vp.x + dx, y: vp.y + dy });
+}
+
+/** Zoom keeping `anchor` (map coords) under the same screen point. */
+export function zoomViewport(vp: Viewport, factor: number, anchor: [number, number]): Viewport {
+  const nextZoom = Math.min(8, Math.max(0.4, vp.zoom * factor));
+  if (nextZoom === vp.zoom) return vp;
+  const size = viewSize(vp);
+  const rx = (anchor[0] - vp.x) / size.width;
+  const ry = (anchor[1] - vp.y) / size.height;
+  const nextSize = { width: MAP_WIDTH / nextZoom, height: MAP_HEIGHT / nextZoom };
+  return clampViewport({
+    zoom: nextZoom,
+    x: anchor[0] - rx * nextSize.width,
+    y: anchor[1] - ry * nextSize.height,
+  });
+}
+
+export function clientToMap(
+  client: { clientX: number; clientY: number },
+  rect: DOMRect,
+  vp: Viewport,
+): [number, number] {
+  const size = viewSize(vp);
+  const x = vp.x + ((client.clientX - rect.left) / rect.width) * size.width;
+  const y = vp.y + ((client.clientY - rect.top) / rect.height) * size.height;
+  return [x, y];
+}
+
+export function fitViewport(): Viewport {
+  return defaultViewport();
+}

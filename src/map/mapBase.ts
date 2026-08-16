@@ -1,5 +1,5 @@
-import { newId } from "../schema/ids";
 import type { Layer, MapDocument, MapFeature, TerrainFeature } from "../schema/types";
+import { translateFeature } from "./geometry";
 
 export function paperBackgroundSvg(title = ""): string {
   const heading = title
@@ -117,6 +117,8 @@ export function syntheticBaseLayer(map: MapDocument): Layer {
   };
 }
 
-export function newTerrainId(): string {
-  return `feat_${newId()}`;
+export function moveFeature(map: MapDocument, id: string, dx: number, dy: number): MapDocument {
+  const feature = allGroundAndOverlayFeatures(map).find((item) => item.id === id);
+  if (!feature) return map;
+  return patchFeature(map, id, translateFeature(feature, dx, dy));
 }

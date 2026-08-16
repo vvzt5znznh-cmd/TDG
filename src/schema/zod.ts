@@ -295,6 +295,12 @@ const milSymbolSchema = z.object({
   designation: z.string().optional(),
   strengthModifier: z.enum(["reinforced", "reduced"]).optional(),
   rotationDeg: z.number().optional(),
+  sizePx: z.number().positive().optional(),
+  directionDeg: z.number().optional(),
+  higherFormation: z.string().optional(),
+  staffComments: z.string().optional(),
+  headquarters: z.boolean().optional(),
+  taskForce: z.boolean().optional(),
 });
 
 const controlMeasureSchema = z.object({

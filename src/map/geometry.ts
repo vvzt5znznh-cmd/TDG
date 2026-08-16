@@ -1,4 +1,4 @@
-import type { GeoGeometry, Position } from "../schema/types";
+import type { GeoGeometry, MapFeature, Position } from "../schema/types";
 
 export function pointsOf(geometry: GeoGeometry): [number, number][] {
   if (geometry.type === "Point") return [[geometry.coordinates[0], geometry.coordinates[1]]];
@@ -35,4 +35,69 @@ export function setVertex(geometry: GeoGeometry, index: number, point: Position)
   if (ring.length > 1 && index === 0) ring[ring.length - 1] = point;
   if (ring.length > 1 && index === ring.length - 1) ring[0] = point;
   return { type: "Polygon", coordinates: [ring] };
+}
+
+export function translatePosition(point: Position, dx: number, dy: number): Position {
+  return [point[0] + dx, point[1] + dy];
+}
+
+export function translateGeometry(geometry: GeoGeometry, dx: number, dy: number): GeoGeometry {
+  if (geometry.type === "Point") {
+    return { type: "Point", coordinates: translatePosition(geometry.coordinates, dx, dy) };
+  }
+  if (geometry.type === "LineString") {
+    return { type: "LineString", coordinates: geometry.coordinates.map((coord) => translatePosition(coord, dx, dy)) };
+  }
+  return {
+    type: "Polygon",
+    coordinates: geometry.coordinates.map((ring) => ring.map((coord) => translatePosition(coord, dx, dy))),
+  };
+}
+
+export function translateFeature(feature: MapFeature, dx: number, dy: number): MapFeature {
+  if (feature.featureType === "symbol") {
+    return {
+      ...feature,
+      position: { type: "Point", coordinates: translatePosition(feature.position.coordinates, dx, dy) },
+    };
+  }
+  return { ...feature, geometry: translateGeometry(feature.geometry, dx, dy) } as MapFeature;
+}
+
+export function snapPoint(point: [number, number], step: number): [number, number] {
+  if (step <= 0) return point;
+  return [Math.round(point[0] / step) * step, Math.round(point[1] / step) * step];
+}
+
+export function dist2(a: [number, number], b: [number, number]): number {
+  const dx = a[0] - b[0];
+  const dy = a[1] - b[1];
+  return dx * dx + dy * dy;
+}
+
+export function distToSegment(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const length2 = dx * dx + dy * dy;
+  if (length2 === 0) return Math.sqrt(dist2(p, a));
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2));
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+}
+
+export function pointInRing(p: [number, number], ring: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i];
+    const b = ring[j];
+    if (!a || !b) continue;
+    const intersect = a[1] > p[1] !== b[1] > p[1] && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1] + 0.00001) + a[0];
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+export function centroid(pts: [number, number][]): [number, number] {
+  if (pts.length === 0) return [0, 0];
+  const sum = pts.reduce<[number, number]>((acc, pt) => [acc[0] + pt[0], acc[1] + pt[1]], [0, 0]);
+  return [sum[0] / pts.length, sum[1] / pts.length];
 }

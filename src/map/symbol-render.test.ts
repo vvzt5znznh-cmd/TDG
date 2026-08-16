@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { symbolDataUrl } from "../ui/map/MilSymbolMark";
+import { symbolDataUrl } from "./symbolRender";
 import type { MilSymbol } from "../schema/types";
 
 function sample(overrides: Partial<MilSymbol> = {}): MilSymbol {
@@ -24,10 +24,18 @@ describe("milsymbol rendering", () => {
     expect(rendered.anchor.x).toBeGreaterThan(0);
   });
 
-  it("renders a symbol with no designation or sidc", () => {
+  it("renders amplifiers without throwing", () => {
     const rendered = symbolDataUrl(
-      sample({ sidc: undefined, designation: undefined, affiliation: "friendly", frame: "rectangle", confidence: "confirmed" }),
+      sample({
+        designation: "2. plut",
+        higherFormation: "2. coy",
+        staffComments: "DS",
+        headquarters: true,
+        directionDeg: 45,
+        sizePx: 48,
+      }),
     );
     expect(rendered.href.startsWith("data:image/svg+xml")).toBe(true);
+    expect(rendered.width).toBeGreaterThan(40);
   });
 });

@@ -1,7 +1,9 @@
-import { useRef, type PointerEvent as ReactPointerEvent, type MouseEvent } from "react";
-import { editableVertices, pointsOf, toSvgPoints } from "../../map/geometry";
+import type { ReactElement } from "react";
+import type { Audience, ControlMeasure, GeoGeometry, MapDocument, MapFeature, TerrainFeatureKind } from "../../schema/types";
+import { pointsOf, toSvgPoints } from "../../map/geometry";
+import { arrowHeadPoints, controlMeasureStyle, labelAnchor, tickAt } from "../../map/controlGraphics";
 import { baseFeatures, syntheticBaseLayer } from "../../map/mapBase";
-import type { Audience, GeoGeometry, MapDocument, MapFeature, Point, TerrainFeatureKind } from "../../schema/types";
+import { MAP_HEIGHT, MAP_WIDTH } from "../../map/viewport";
 import { SymbolMark } from "./MilSymbolMark";
 
 export const AFFILIATION_COLOR = {
@@ -24,14 +26,113 @@ const TERRAIN_PAINT: Record<TerrainFeatureKind, { color: string; fill: string; w
   custom: { color: "#3e4c34", fill: "#3e4c34", width: 2 },
 };
 
-function featurePaint(feature: MapFeature, loadBearing?: boolean, highlight?: boolean) {
+function terrainPaint(kind: TerrainFeatureKind, loadBearing?: boolean, highlight?: boolean) {
   if (loadBearing) return { color: "#9a2f2a", fill: "#9a2f2a", width: 4 };
-  if (feature.featureType === "terrain") {
-    const paint = TERRAIN_PAINT[feature.kind];
-    return highlight ? { ...paint, width: paint.width + 2 } : paint;
+  const paint = TERRAIN_PAINT[kind];
+  return highlight ? { ...paint, width: paint.width + 2 } : paint;
+}
+
+export function ControlMeasureShape({
+  feature,
+  highlight,
+  loadBearing,
+}: {
+  feature: ControlMeasure;
+  highlight?: boolean;
+  loadBearing?: boolean;
+}) {
+  const pts = pointsOf(feature.geometry);
+  const style = controlMeasureStyle(feature.kind);
+  const color = loadBearing || highlight ? "#9a2f2a" : style.color;
+  const width = highlight ? style.width + 1.5 : style.width;
+  const [lx, ly] = labelAnchor(feature);
+  const label = (
+    <text x={lx + 10} y={ly - 8} fontSize={14} fontFamily="serif" fill={color} fontWeight={700}>
+      {feature.label}
+    </text>
+  );
+
+  if (feature.kind === "objective" && feature.geometry.type === "Point" && pts[0]) {
+    const [x, y] = pts[0];
+    return (
+      <g>
+        <circle cx={x} cy={y} r={18} fill="none" stroke={color} strokeWidth={width} />
+        <circle cx={x} cy={y} r={4} fill={color} />
+        <text x={x} y={y - 26} textAnchor="middle" fontSize={14} fontFamily="serif" fontWeight={700} fill={color}>
+          {feature.label}
+        </text>
+      </g>
+    );
   }
-  const color = feature.featureType === "control_measure" ? "#1b2118" : "#3e4c34";
-  return { color, fill: color, width: highlight ? 4 : 2 };
+
+  if ((feature.kind === "trp" || feature.kind === "lz" || feature.kind === "checkpoint") && pts[0]) {
+    const [x, y] = pts[0];
+    return (
+      <g>
+        <rect x={x - 11} y={y - 11} width={22} height={22} fill="#fff" stroke={color} strokeWidth={width} />
+        <text x={x} y={y - 18} textAnchor="middle" fontSize={13} fontFamily="serif" fontWeight={700} fill={color}>
+          {feature.label}
+        </text>
+      </g>
+    );
+  }
+
+  if (feature.geometry.type === "LineString" && pts.length >= 2) {
+    const last = pts[pts.length - 1]!;
+    const prev = pts[pts.length - 2]!;
+    const first = pts[0]!;
+    const second = pts[1]!;
+    const startTick = tickAt(first, second);
+    const endTick = tickAt(last, prev);
+    return (
+      <g>
+        <polyline
+          points={toSvgPoints(pts)}
+          fill="none"
+          stroke={color}
+          strokeWidth={width}
+          strokeDasharray={style.dash}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {feature.kind === "phase_line" ? (
+          <>
+            <line x1={startTick[0][0]} y1={startTick[0][1]} x2={startTick[1][0]} y2={startTick[1][1]} stroke={color} strokeWidth={width} />
+            <line x1={endTick[0][0]} y1={endTick[0][1]} x2={endTick[1][0]} y2={endTick[1][1]} stroke={color} strokeWidth={width} />
+          </>
+        ) : null}
+        {feature.kind === "axis_of_advance" ? <polygon points={arrowHeadPoints(prev, last)} fill={color} /> : null}
+        {label}
+      </g>
+    );
+  }
+
+  if (feature.geometry.type === "Polygon" && pts.length >= 3) {
+    return (
+      <g>
+        <polygon
+          points={toSvgPoints(pts)}
+          fill={color}
+          fillOpacity={0.08}
+          stroke={color}
+          strokeWidth={width}
+          strokeDasharray={style.dash}
+        />
+        {label}
+      </g>
+    );
+  }
+
+  if (pts[0]) {
+    const [x, y] = pts[0];
+    return (
+      <g>
+        <circle cx={x} cy={y} r={7} fill="#fff" stroke={color} strokeWidth={width} />
+        {label}
+      </g>
+    );
+  }
+  return null;
 }
 
 export function FeatureShape({
@@ -46,9 +147,12 @@ export function FeatureShape({
   if (feature.featureType === "symbol") {
     return <SymbolMark symbol={feature} highlight={highlight || loadBearing} />;
   }
+  if (feature.featureType === "control_measure") {
+    return <ControlMeasureShape feature={feature} highlight={highlight} loadBearing={loadBearing} />;
+  }
   const pts = pointsOf(feature.geometry);
   if (pts.length === 0) return null;
-  const paint = featurePaint(feature, loadBearing, highlight);
+  const paint = feature.featureType === "terrain" ? terrainPaint(feature.kind, loadBearing, highlight) : { color: "#3e4c34", fill: "#3e4c34", width: highlight ? 4 : 2 };
   if (feature.geometry.type === "Point") {
     const [x, y] = pts[0] ?? [0, 0];
     return (
@@ -65,7 +169,7 @@ export function FeatureShape({
   if (feature.geometry.type === "LineString") {
     return (
       <g>
-        <polyline points={toSvgPoints(pts)} fill="none" stroke={paint.color} strokeWidth={paint.width} />
+        <polyline points={toSvgPoints(pts)} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" />
         {"label" in feature && feature.label && pts[0] ? (
           <text x={pts[0][0]} y={pts[0][1] - 8} fontSize={13} fill={paint.color}>
             {feature.label}
@@ -110,6 +214,17 @@ export function ScaleBar({ x, y, meters, lengthPx }: { x: number; y: number; met
   );
 }
 
+export function MapGrid({ step = 50 }: { step?: number }) {
+  const lines: ReactElement[] = [];
+  for (let x = 0; x <= MAP_WIDTH; x += step) {
+    lines.push(<line key={`v${x}`} x1={x} y1={0} x2={x} y2={MAP_HEIGHT} stroke="#3d4a32" strokeOpacity={x % (step * 4) === 0 ? 0.18 : 0.08} />);
+  }
+  for (let y = 0; y <= MAP_HEIGHT; y += step) {
+    lines.push(<line key={`h${y}`} x1={0} y1={y} x2={MAP_WIDTH} y2={y} stroke="#3d4a32" strokeOpacity={y % (step * 4) === 0 ? 0.18 : 0.08} />);
+  }
+  return <g className="map-grid">{lines}</g>;
+}
+
 export function usedLegend(map: MapDocument, audience: Audience | "all") {
   const entries: { id: string; label: string; color: string }[] = [];
   const seen = new Set<string>();
@@ -147,11 +262,73 @@ export function usedLegend(map: MapDocument, audience: Audience | "all") {
   return entries;
 }
 
-function clientToMap(event: { clientX: number; clientY: number }, svg: SVGSVGElement, width: number, height: number): [number, number] {
-  const rect = svg.getBoundingClientRect();
-  const x = ((event.clientX - rect.left) / rect.width) * width;
-  const y = ((event.clientY - rect.top) / rect.height) * height;
-  return [x, y];
+export function MapScene({
+  map,
+  imageUrl,
+  audience,
+  loadBearingIds,
+  selectedId,
+  draftPoints,
+  showGrid,
+  onSelect,
+}: {
+  map: MapDocument;
+  imageUrl?: string;
+  audience: Audience | "all";
+  loadBearingIds?: Set<string>;
+  selectedId?: string | null;
+  draftPoints?: [number, number][];
+  showGrid?: boolean;
+  onSelect?: (id: string) => void;
+}) {
+  const layers = map.layers.filter((layer) => audience === "all" || layer.visibleIn.includes(audience));
+  const ground = audience === "all" || audience === "student" || audience === "facilitator" ? baseFeatures(map) : [];
+  const imageOpacity = map.underlay?.opacity ?? (map.base.kind === "raster" ? map.base.opacity : 1);
+
+  return (
+    <>
+      {imageUrl ? (
+        <image href={imageUrl} x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} opacity={imageOpacity} preserveAspectRatio="none" />
+      ) : (
+        <rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#e7e2d1" />
+      )}
+      {showGrid ? <MapGrid /> : null}
+      <g className="map-base">
+        {ground.map((feature) => (
+          <g key={feature.id} onClick={() => onSelect?.(feature.id)}>
+            <FeatureShape feature={feature} highlight={selectedId === feature.id} loadBearing={loadBearingIds?.has(feature.id)} />
+          </g>
+        ))}
+      </g>
+      {layers.map((layer) => (
+        <g key={layer.id}>
+          {layer.features.map((feature) => (
+            <g key={feature.id} onClick={() => onSelect?.(feature.id)}>
+              <FeatureShape feature={feature} highlight={selectedId === feature.id} loadBearing={loadBearingIds?.has(feature.id)} />
+            </g>
+          ))}
+        </g>
+      ))}
+      <ScaleBar x={60} y={MAP_HEIGHT - 50} meters={map.scaleBar.meters} lengthPx={map.scaleBar.renderLengthPx} />
+      <NorthArrow x={MAP_WIDTH - 50} y={70} rotationDeg={map.northArrow.rotationDeg} />
+      {draftPoints && draftPoints.length > 0 ? (
+        <g>
+          {draftPoints.length > 1 ? (
+            <polyline
+              points={draftPoints.map(([dx, dy]) => `${dx},${dy}`).join(" ")}
+              fill="none"
+              stroke="#9a2f2a"
+              strokeWidth={3}
+              strokeDasharray="8 6"
+            />
+          ) : null}
+          {draftPoints.map(([dx, dy], index) => (
+            <circle key={index} cx={dx} cy={dy} r={7} fill="#9a2f2a" stroke="#fff" strokeWidth={2} />
+          ))}
+        </g>
+      ) : null}
+    </>
+  );
 }
 
 export function MapView({
@@ -161,13 +338,8 @@ export function MapView({
   greyscale,
   loadBearingIds,
   selectedId,
-  onSelect,
-  onClickPoint,
-  onFinishDraft,
-  onMoveVertex,
-  draftPoints,
-  width = 1600,
-  height = 1200,
+  width = MAP_WIDTH,
+  height = MAP_HEIGHT,
 }: {
   map: MapDocument;
   imageUrl?: string;
@@ -175,153 +347,14 @@ export function MapView({
   greyscale?: boolean;
   loadBearingIds?: Set<string>;
   selectedId?: string | null;
-  onSelect?: (id: string | null) => void;
-  onClickPoint?: (point: Point) => void;
-  onFinishDraft?: () => void;
-  onMoveVertex?: (featureId: string, vertexIndex: number, point: Point) => void;
-  draftPoints?: [number, number][];
   width?: number;
   height?: number;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const dragRef = useRef<{ id: string; index: number } | null>(null);
-  const suppressClickRef = useRef(false);
-  const layers = map.layers.filter((layer) => audience === "all" || layer.visibleIn.includes(audience));
-  const ground = audience === "all" || audience === "student" || audience === "facilitator" ? baseFeatures(map) : [];
-  const imageOpacity = map.underlay?.opacity ?? (map.base.kind === "raster" ? map.base.opacity : 1);
-
-  const selectedFeature =
-    selectedId == null
-      ? undefined
-      : [...ground, ...layers.flatMap((layer) => layer.features)].find((feature) => feature.id === selectedId);
-  const handles =
-    onMoveVertex && selectedFeature && "geometry" in selectedFeature ? editableVertices(selectedFeature.geometry) : [];
-
-  function handleClick(event: MouseEvent<SVGSVGElement>) {
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false;
-      return;
-    }
-    if (dragRef.current || !onClickPoint) return;
-    const svg = event.currentTarget;
-    const [x, y] = clientToMap(event, svg, width, height);
-    onClickPoint({ type: "Point", coordinates: [x, y] });
-  }
-
-  function moveDrag(event: ReactPointerEvent) {
-    const current = dragRef.current;
-    const svg = svgRef.current;
-    if (!current || !svg || !onMoveVertex) return;
-    const [x, y] = clientToMap(event, svg, width, height);
-    onMoveVertex(current.id, current.index, { type: "Point", coordinates: [x, y] });
-  }
-
   return (
     <div>
       <div className={`map-stage ${greyscale ? "greyscale" : ""}`}>
-        {imageUrl ? (
-          <img src={imageUrl} alt={map.name} style={{ opacity: imageOpacity }} />
-        ) : (
-          <div style={{ aspectRatio: `${width} / ${height}`, background: "#e7e2d1" }} />
-        )}
-        <svg
-          ref={svgRef}
-          className="map-overlay"
-          viewBox={`0 0 ${width} ${height}`}
-          onClick={handleClick}
-          onDoubleClick={() => {
-            if (draftPoints && draftPoints.length > 0) onFinishDraft?.();
-          }}
-          role="img"
-          aria-label={map.name}
-        >
-          <g className="map-base">
-            {ground.map((feature) => (
-              <g
-                key={feature.id}
-                onClick={(event) => {
-                  if (onMoveVertex) event.stopPropagation();
-                  onSelect?.(feature.id);
-                }}
-              >
-                <FeatureShape
-                  feature={feature}
-                  highlight={selectedId === feature.id}
-                  loadBearing={loadBearingIds?.has(feature.id)}
-                />
-              </g>
-            ))}
-          </g>
-          {layers.map((layer) => (
-            <g key={layer.id}>
-              {layer.features.map((feature) => (
-                <g
-                  key={feature.id}
-                  onClick={(event) => {
-                    if (onMoveVertex) event.stopPropagation();
-                    onSelect?.(feature.id);
-                  }}
-                >
-                  <FeatureShape
-                    feature={feature}
-                    highlight={selectedId === feature.id}
-                    loadBearing={loadBearingIds?.has(feature.id)}
-                  />
-                </g>
-              ))}
-            </g>
-          ))}
-          <ScaleBar x={60} y={height - 50} meters={map.scaleBar.meters} lengthPx={map.scaleBar.renderLengthPx} />
-          <NorthArrow x={width - 50} y={70} rotationDeg={map.northArrow.rotationDeg} />
-          {draftPoints && draftPoints.length > 0 ? (
-            <g>
-              {draftPoints.length > 1 ? (
-                <polyline
-                  points={draftPoints.map(([dx, dy]) => `${dx},${dy}`).join(" ")}
-                  fill="none"
-                  stroke="#9a2f2a"
-                  strokeWidth={3}
-                  strokeDasharray="8 6"
-                />
-              ) : null}
-              {draftPoints.map(([dx, dy], index) => (
-                <circle key={index} cx={dx} cy={dy} r={7} fill="#9a2f2a" stroke="#fff" strokeWidth={2} />
-              ))}
-            </g>
-          ) : null}
-          {selectedId && handles.length > 0 ? (
-            <g>
-              {handles.map(([hx, hy], index) => (
-                <circle
-                  key={`${selectedId}-${index}`}
-                  className="vertex-handle"
-                  cx={hx}
-                  cy={hy}
-                  r={8}
-                  fill="#fff"
-                  stroke="#9a2f2a"
-                  strokeWidth={2}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    event.preventDefault();
-                    dragRef.current = { id: selectedId, index };
-                    suppressClickRef.current = true;
-                    (event.target as SVGCircleElement).setPointerCapture?.(event.pointerId);
-                  }}
-                  onPointerMove={(event) => {
-                    if (dragRef.current) moveDrag(event);
-                  }}
-                  onPointerUp={(event) => {
-                    event.stopPropagation();
-                    dragRef.current = null;
-                    window.setTimeout(() => {
-                      dragRef.current = null;
-                    }, 0);
-                  }}
-                />
-              ))}
-            </g>
-          ) : null}
+        <svg className="map-overlay map-print" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={map.name}>
+          <MapScene map={map} imageUrl={imageUrl} audience={audience} loadBearingIds={loadBearingIds} selectedId={selectedId} />
         </svg>
       </div>
       {map.legend.autoGenerate ? (

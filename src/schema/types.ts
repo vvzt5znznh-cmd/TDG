@@ -329,6 +329,14 @@ export interface MilSymbol {
   designation?: string;
   strengthModifier?: "reinforced" | "reduced";
   rotationDeg?: number;
+  /** milsymbol frame height in map pixels. */
+  sizePx?: number;
+  /** Movement indicator, degrees clockwise from north. */
+  directionDeg?: number;
+  higherFormation?: string;
+  staffComments?: string;
+  headquarters?: boolean;
+  taskForce?: boolean;
 }
 
 export interface ControlMeasure {
