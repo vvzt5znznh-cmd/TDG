@@ -259,7 +259,7 @@ export function MapEditor({
     setGhost(null);
   }
 
-  function onPlacePointerDown(event: React.PointerEvent) {
+  function onPlacePointerDown(event: ReactPointerEvent) {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
