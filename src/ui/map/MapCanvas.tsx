@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { editableVertices, pointerDistance, rotateHandlePoint } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
 import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
 import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
+import type { UnitStamp } from "../../map/stamp";
+import { stampFromDataTransfer } from "../../map/stamp";
 import { MapScene } from "./MapView";
 
-export type MapTool = "select" | "pan" | "stamp" | "draw";
+export type MapTool = "select" | "pan" | "draw";
 
 type Drag =
   | { kind: "pan"; lastClient: [number, number] }
@@ -39,6 +41,7 @@ export function MapCanvas({
   onRotate,
   onStrokeStart,
   onStrokeEnd,
+  onDropStamp,
 }: {
   map: MapDocument;
   imageUrl?: string;
@@ -61,11 +64,13 @@ export function MapCanvas({
   onRotate: (id: string, rotationDeg: number) => void;
   onStrokeStart: () => void;
   onStrokeEnd: () => void;
+  onDropStamp?: (stamp: UnitStamp, point: Point) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<Drag | null>(null);
   const suppressClickRef = useRef(false);
   const [spacePan, setSpacePan] = useState(false);
+  const [dropReady, setDropReady] = useState(false);
   const selected = selectedId ? allGroundAndOverlayFeatures(map).find((feature) => feature.id === selectedId) : undefined;
   const panning = tool === "pan" || spacePan;
 
@@ -226,6 +231,23 @@ export function MapCanvas({
     onClickPoint({ type: "Point", coordinates: snapped });
   }
 
+  function handleDragOver(event: ReactDragEvent) {
+    if (!onDropStamp) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDropReady(true);
+  }
+
+  function handleDrop(event: ReactDragEvent) {
+    if (!onDropStamp) return;
+    event.preventDefault();
+    setDropReady(false);
+    const stamp = stampFromDataTransfer(event.dataTransfer);
+    const point = mapPoint(event);
+    if (!stamp || !point) return;
+    onDropStamp(stamp, { type: "Point", coordinates: maybeSnap(point) });
+  }
+
   const handleR = mapPx(6);
   const handles = selected && selected.featureType !== "symbol" ? editableVertices(selected.geometry) : [];
   const symbolHandle =
@@ -234,7 +256,15 @@ export function MapCanvas({
       : null;
 
   return (
-    <div className={`map-canvas-frame ${greyscale ? "greyscale" : ""}`}>
+    <div
+      className={`map-canvas-frame ${greyscale ? "greyscale" : ""} ${dropReady ? "drop-ready" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+        setDropReady(false);
+      }}
+      onDrop={handleDrop}
+    >
       <svg
         ref={svgRef}
         className="map-canvas"
@@ -246,6 +276,11 @@ export function MapCanvas({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onClick={handleClick}
+        onDragOver={handleDragOver}
+        onDrop={(event) => {
+          event.stopPropagation();
+          handleDrop(event);
+        }}
         onDoubleClick={() => {
           if (draftPoints && draftPoints.length > 0) onFinishDraft?.();
         }}

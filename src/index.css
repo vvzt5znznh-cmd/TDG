@@ -684,8 +684,13 @@ svg.map-canvas {
   border: 1px solid var(--paper-3);
   background: #fff;
   padding: 6px 4px;
-  cursor: pointer;
+  cursor: grab;
   font-size: 11px;
+  user-select: none;
+}
+
+.symbol-chip:active {
+  cursor: grabbing;
 }
 
 .symbol-chip.selected {
@@ -696,6 +701,34 @@ svg.map-canvas {
 .symbol-chip img {
   height: 34px;
   width: auto;
+  pointer-events: none;
+}
+
+.unit-composer {
+  border: 1px solid var(--paper-3);
+  background: #fff;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.unit-tray-slot {
+  position: relative;
+}
+
+.unit-tray-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 0 6px;
+  line-height: 1.2;
+  font-size: 14px;
+}
+
+.map-canvas-frame.drop-ready {
+  outline: 3px dashed var(--olive);
+  outline-offset: -3px;
 }
 
 .lede {

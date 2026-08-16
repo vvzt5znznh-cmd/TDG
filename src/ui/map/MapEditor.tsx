@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readFileAsDataUrl } from "../../io/files";
 import { setVertex } from "../../map/geometry";
 import {
@@ -10,7 +10,8 @@ import {
   moveFeature,
   patchFeature,
 } from "../../map/mapBase";
-import { buildSidc, ECHELON_MARKER, frameForAffiliation, UNIT_GROUPS, withSyncedSidc } from "../../map/sidc";
+import { withSyncedSidc } from "../../map/sidc";
+import { createSymbolFromStamp, layerRoleForAffiliation, type UnitStamp } from "../../map/stamp";
 import { defaultViewport, fitViewport, viewportCenter, zoomViewport, type Viewport } from "../../map/viewport";
 import { newId } from "../../schema/ids";
 import type {
@@ -31,7 +32,7 @@ import { Field, NumberInput, Select, TextInput } from "../fields";
 import { Inspector } from "./Inspector";
 import { MapCanvas, type MapTool } from "./MapCanvas";
 import { geometryFromDraft, usedLegend } from "./MapView";
-import { SymbolChip } from "./MilSymbolMark";
+import { UnitTray, type CustomTrayItem } from "./UnitTray";
 
 type DrawKind = "point" | "line" | "polygon";
 
@@ -88,9 +89,10 @@ export function MapEditor({
   const map = scenario.maps[0];
   const [tool, setTool] = useState<MapTool>("select");
   const [drawId, setDrawId] = useState<DrawTool["id"] | null>(null);
-  const [functionId, setFunctionId] = useState("UCI");
   const [affiliation, setAffiliation] = useState<Affiliation>("friendly");
   const stampEchelon: Echelon = scenario.meta.echelon === "custom" ? "platoon" : scenario.meta.echelon;
+  const [unitDraft, setUnitDraft] = useState<UnitStamp>({ functionId: "UCI", echelon: stampEchelon });
+  const [customUnits, setCustomUnits] = useState<CustomTrayItem[]>([]);
   const [label, setLabel] = useState("");
   const [audience, setAudience] = useState<Audience | "all">("all");
   const [greyscale, setGreyscale] = useState(false);
@@ -158,22 +160,6 @@ export function MapEditor({
   const imageRef = map ? mapImageRef(map) ?? "" : "";
   const imageUrl = imageRef ? assets?.[imageRef] : undefined;
   const loadBearingIds = loadBearingFeatureIds(scenario);
-  const stampConfidence = affiliation === "hostile" ? "suspected" : "confirmed";
-  const stampSidc = buildSidc({
-    affiliation,
-    confidence: stampConfidence,
-    echelon: stampEchelon,
-    functionId,
-  });
-
-  const filteredGroups = useMemo(() => {
-    const q = symbolQuery.trim().toLowerCase();
-    if (!q) return UNIT_GROUPS;
-    return UNIT_GROUPS.map((group) => ({
-      ...group,
-      units: group.units.filter((unit) => unit.label.toLowerCase().includes(q)),
-    })).filter((group) => group.units.length > 0);
-  }, [symbolQuery]);
 
   if (!map) return <p>No map on this scenario.</p>;
 
@@ -205,29 +191,17 @@ export function MapEditor({
     setSelectedId(null);
   }
 
-  function placeSymbol(point: [number, number]) {
+  function placeSymbol(point: [number, number], stamp: UnitStamp) {
     if (!map) return;
-    const feature = withSyncedSidc({
-      featureType: "symbol",
-      id: newId(),
-      sidc: stampSidc,
-      affiliation,
-      frame: frameForAffiliation(affiliation),
-      confidence: stampConfidence,
-      position: { type: "Point", coordinates: point },
-      echelon: stampEchelon,
-      echelonMarker: ECHELON_MARKER[stampEchelon] || undefined,
-      sizePx: 42,
-    });
-    const role = affiliation === "hostile" ? (audience === "facilitator" ? "enemy_truth" : "enemy_known") : "friendly";
+    const feature = createSymbolFromStamp(stamp, point, { affiliation, echelon: stampEchelon });
+    const role = layerRoleForAffiliation(feature.affiliation, audience);
     commit(addOverlayFeature(map, role, feature));
+    setSelectedId(feature.id);
+    setTool("select");
+    setDrawId(null);
   }
 
   function commitPoint(point: [number, number]) {
-    if (tool === "stamp") {
-      placeSymbol(point);
-      return;
-    }
     if (tool !== "draw" || !drawTool) return;
     if (drawTool.draw === "point") {
       finishGeometry("point", [point]);
@@ -270,7 +244,8 @@ export function MapEditor({
   function patchSelected(patch: object) {
     if (!selected || !map) return;
     if (selected.featureType === "symbol") {
-      const next = withSyncedSidc({ ...selected, ...patch } as MilSymbol);
+      const extra = patch as Partial<MilSymbol> & { functionId?: string };
+      const next = withSyncedSidc({ ...selected, ...extra }, extra.functionId);
       commit(patchFeature(map, selected.id, next));
       return;
     }
@@ -354,52 +329,19 @@ export function MapEditor({
           </div>
         ) : null}
 
-        <div className="section-kicker">Stamp unit</div>
-        <Field label="Whose">
-          <Select
-            value={affiliation}
-            options={[
-              { value: "friendly", label: "Friendly" },
-              { value: "hostile", label: "Hostile" },
-              { value: "neutral", label: "Neutral" },
-              { value: "unknown", label: "Unknown" },
-            ]}
-            onChange={setAffiliation}
-          />
-        </Field>
-        <Field label="Search">
-          <TextInput value={symbolQuery} onChange={setSymbolQuery} placeholder="infantry" />
-        </Field>
-        {filteredGroups.map((group) => (
-          <div key={group.id}>
-            <div className="section-kicker">{group.label}</div>
-            <div className="symbol-palette">
-              {group.units.map((unit) => {
-                const sidc = buildSidc({
-                  affiliation,
-                  confidence: stampConfidence,
-                  echelon: stampEchelon,
-                  functionId: unit.functionId,
-                });
-                return (
-                  <SymbolChip
-                    key={unit.id}
-                    sidc={sidc}
-                    label={unit.label}
-                    selected={tool === "stamp" && functionId === unit.functionId}
-                    onClick={() => {
-                      setFunctionId(unit.functionId);
-                      setTool("stamp");
-                      setDrawId(null);
-                      setDraft([]);
-                      setSelectedId(null);
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        <UnitTray
+          affiliation={affiliation}
+          onAffiliation={setAffiliation}
+          defaultEchelon={stampEchelon}
+          query={symbolQuery}
+          onQuery={setSymbolQuery}
+          draft={unitDraft}
+          onDraft={setUnitDraft}
+          customUnits={customUnits}
+          onKeep={(item) => setCustomUnits((items) => [...items, { ...item, affiliation }])}
+          onRemove={(id) => setCustomUnits((items) => items.filter((item) => item.id !== id))}
+          onSeed={(stamp) => setUnitDraft(stamp)}
+        />
 
         <details>
           <summary>Map settings</summary>
@@ -447,14 +389,12 @@ export function MapEditor({
       <div className="map-stage-col">
         <p className="map-mode">
           {tool === "select"
-            ? "Select — drag to move, corners to reshape, handle above a unit to rotate. Space pans. Wheel zooms."
+            ? "Select — drag a unit from the rail onto the sheet. Drag to move, corners to reshape, handle above a unit to rotate."
             : tool === "pan"
               ? "Pan — drag the sheet. Wheel zooms. 0 fits."
-              : tool === "stamp"
-                ? `Stamp ${UNIT_GROUPS.flatMap((group) => group.units).find((unit) => unit.functionId === functionId)?.label ?? "unit"} — click to place. Esc returns to select.`
-                : drawTool?.draw === "point"
-                  ? `Place ${drawTool.label} — click the map.`
-                  : `Draw ${drawTool?.label ?? "shape"} — click points, Enter or double-click to finish.`}
+              : drawTool?.draw === "point"
+                ? `Place ${drawTool.label} — click the map.`
+                : `Draw ${drawTool?.label ?? "shape"} — click points, Enter or double-click to finish.`}
         </p>
         <MapCanvas
           map={map}
@@ -471,6 +411,7 @@ export function MapEditor({
           onViewport={setViewport}
           onSelect={setSelectedId}
           onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
+          onDropStamp={(stamp, point) => placeSymbol([point.coordinates[0], point.coordinates[1]], stamp)}
           onFinishDraft={finishDraft}
           onMove={(id, dx, dy) => {
             const current = mapRef.current;

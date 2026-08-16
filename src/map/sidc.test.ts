@@ -76,4 +76,21 @@ describe("SIDC builder", () => {
     expect(synced.frame).toBe("diamond");
     expect(synced.echelon).toBe("company");
   });
+
+  it("can change the function ID of an existing symbol", () => {
+    const synced = withSyncedSidc(
+      {
+        featureType: "symbol",
+        id: "u1",
+        sidc: "SFGPUCI----D",
+        affiliation: "friendly",
+        frame: "rectangle",
+        confidence: "confirmed",
+        position: { type: "Point", coordinates: [0, 0] },
+        echelon: "platoon",
+      },
+      "UCA",
+    );
+    expect(synced.sidc).toBe("SFGPUCA----D");
+  });
 });

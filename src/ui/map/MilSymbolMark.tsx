@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import type { MilSymbol } from "../../schema/types";
-import { catalogChipHref, renderSymbol } from "../../map/symbolRender";
-import { frameForAffiliation } from "../../map/sidc";
+import { renderSymbol } from "../../map/symbolRender";
 
 export function SymbolMark({ symbol, highlight }: { symbol: MilSymbol; highlight?: boolean }) {
   const [x, y] = symbol.position.coordinates;
@@ -44,31 +43,3 @@ export function SymbolMark({ symbol, highlight }: { symbol: MilSymbol; highlight
     </g>
   );
 }
-
-export function SymbolChip({
-  sidc,
-  selected,
-  label,
-  onClick,
-}: {
-  sidc: string;
-  selected?: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  const href = useMemo(() => {
-    try {
-      return catalogChipHref(sidc);
-    } catch {
-      return "";
-    }
-  }, [sidc]);
-  return (
-    <button type="button" className={`symbol-chip ${selected ? "selected" : ""}`} onClick={onClick} title={label}>
-      {href ? <img src={href} alt="" /> : null}
-      <span>{label}</span>
-    </button>
-  );
-}
-
-export { frameForAffiliation };

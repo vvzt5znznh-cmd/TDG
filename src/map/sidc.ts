@@ -156,9 +156,9 @@ export function echelonFromSidc(sidc?: string): Echelon {
 }
 
 /** Rebuild SIDC, frame, and echelon marker from the symbol's own fields. */
-export function withSyncedSidc(symbol: MilSymbol): MilSymbol {
+export function withSyncedSidc(symbol: MilSymbol, functionId?: string): MilSymbol {
   const parsed = parseSidc(symbol.sidc);
-  const functionId = parsed?.functionId || "UCI";
+  const fn = functionId || parsed?.functionId || "UCI";
   const echelon = symbol.echelon ?? parsed?.echelon ?? "platoon";
   return {
     ...symbol,
@@ -167,11 +167,24 @@ export function withSyncedSidc(symbol: MilSymbol): MilSymbol {
       affiliation: symbol.affiliation,
       confidence: symbol.confidence,
       echelon,
-      functionId,
+      functionId: fn,
       headquarters: symbol.headquarters,
       taskForce: symbol.taskForce,
     }),
     frame: frameForAffiliation(symbol.affiliation),
     echelonMarker: ECHELON_MARKER[echelon] || undefined,
   };
+}
+
+export const ECHELON_OPTIONS: { value: Echelon; label: string }[] = [
+  { value: "fireteam", label: "Fireteam" },
+  { value: "squad", label: "Squad" },
+  { value: "platoon", label: "Platoon" },
+  { value: "company", label: "Company" },
+  { value: "battalion", label: "Battalion" },
+  { value: "brigade", label: "Brigade" },
+];
+
+export function labelForFunctionId(functionId: string): string {
+  return UNIT_CATALOG.find((unit) => unit.functionId === functionId)?.label ?? functionId;
 }

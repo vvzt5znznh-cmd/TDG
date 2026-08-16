@@ -1,5 +1,5 @@
-import type { Affiliation, Confidence, ControlMeasure, Echelon, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
-import { echelonFromSidc } from "../../map/sidc";
+import type { Affiliation, Confidence, ControlMeasure, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
+import { ECHELON_OPTIONS, echelonFromSidc, functionIdFromSidc, UNIT_CATALOG } from "../../map/sidc";
 import { CommitTextInput, Field, NumberInput, Select } from "../fields";
 
 const AFFILIATION_OPTIONS: { value: Affiliation; label: string }[] = [
@@ -15,29 +15,20 @@ const CONFIDENCE_OPTIONS: { value: Confidence; label: string }[] = [
   { value: "templated", label: "Templated" },
 ];
 
-const ECHELON_OPTIONS: { value: Echelon; label: string }[] = [
-  { value: "fireteam", label: "Fireteam" },
-  { value: "squad", label: "Squad" },
-  { value: "platoon", label: "Platoon" },
-  { value: "company", label: "Company" },
-  { value: "battalion", label: "Battalion" },
-  { value: "brigade", label: "Brigade" },
-];
-
 export function Inspector({
   feature,
   onPatch,
   onDelete,
 }: {
   feature: MapFeature | undefined;
-  onPatch: (patch: Partial<MilSymbol> | Partial<TerrainFeature> | Partial<ControlMeasure>) => void;
+  onPatch: (patch: (Partial<MilSymbol> & { functionId?: string }) | Partial<TerrainFeature> | Partial<ControlMeasure>) => void;
   onDelete: () => void;
 }) {
   if (!feature) {
     return (
       <aside className="map-inspector">
         <div className="section-kicker">Inspector</div>
-        <p className="hint">Select a unit or a piece of ground. Drag to move. Corners reshape. The handle above a unit rotates it.</p>
+        <p className="hint">Select a unit or a piece of ground. Drag a unit from the rail onto the sheet to place it.</p>
       </aside>
     );
   }
@@ -45,11 +36,18 @@ export function Inspector({
   if (feature.featureType === "symbol") {
     const symbol = feature;
     const echelon = symbol.echelon ?? echelonFromSidc(symbol.sidc);
+    const kind = functionIdFromSidc(symbol.sidc);
+    const kindOptions = UNIT_CATALOG.some((unit) => unit.functionId === kind)
+      ? UNIT_CATALOG.map((unit) => ({ value: unit.functionId, label: unit.label }))
+      : [{ value: kind, label: kind }, ...UNIT_CATALOG.map((unit) => ({ value: unit.functionId, label: unit.label }))];
     return (
       <aside className="map-inspector">
         <div className="section-kicker">This unit</div>
         <Field label="Designation">
           <CommitTextInput value={symbol.designation ?? ""} onCommit={(designation) => onPatch({ designation })} placeholder="2. plut" />
+        </Field>
+        <Field label="Kind">
+          <Select value={kind} options={kindOptions} onChange={(functionId) => onPatch({ functionId })} />
         </Field>
         <Field label="Whose">
           <Select value={symbol.affiliation} options={AFFILIATION_OPTIONS} onChange={(affiliation) => onPatch({ affiliation })} />
