@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import ms from "milsymbol";
-import { buildSidc, UNIT_CATALOG } from "./sidc";
+import { buildSidc, parseSidc, UNIT_CATALOG, withSyncedSidc } from "./sidc";
 
 describe("SIDC builder", () => {
   it("builds valid APP-6 symbols for the unit catalog", () => {
@@ -49,5 +49,31 @@ describe("SIDC builder", () => {
     expect(tf[10]).toBe("E");
     expect(new ms.Symbol(hq).getMetadata().headquarters).toBe(true);
     expect(new ms.Symbol(tf).getMetadata().taskForce).toBe(true);
+  });
+
+  it("parses affiliation, function, HQ and echelon from a SIDC", () => {
+    const parsed = parseSidc("SHGAUCI---AE");
+    expect(parsed?.affiliation).toBe("hostile");
+    expect(parsed?.anticipated).toBe(true);
+    expect(parsed?.functionId).toBe("UCI");
+    expect(parsed?.headquarters).toBe(true);
+    expect(parsed?.echelon).toBe("company");
+  });
+
+  it("rebuilds SIDC from the symbol's own echelon, not a stamp default", () => {
+    const synced = withSyncedSidc({
+      featureType: "symbol",
+      id: "u1",
+      sidc: "SFGPUCI----D",
+      affiliation: "hostile",
+      frame: "rectangle",
+      confidence: "confirmed",
+      position: { type: "Point", coordinates: [0, 0] },
+      echelon: "company",
+      headquarters: true,
+    });
+    expect(synced.sidc).toBe("SHGPUCI---AE");
+    expect(synced.frame).toBe("diamond");
+    expect(synced.echelon).toBe("company");
   });
 });

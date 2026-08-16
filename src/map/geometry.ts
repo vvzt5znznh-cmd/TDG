@@ -101,3 +101,15 @@ export function centroid(pts: [number, number][]): [number, number] {
   const sum = pts.reduce<[number, number]>((acc, pt) => [acc[0] + pt[0], acc[1] + pt[1]], [0, 0]);
   return [sum[0] / pts.length, sum[1] / pts.length];
 }
+
+export const ROTATE_HANDLE_DISTANCE = 56;
+
+/** Handle sits above the symbol at 0°, then follows rotation. */
+export function rotateHandlePoint(cx: number, cy: number, rotationDeg: number, distance = ROTATE_HANDLE_DISTANCE): [number, number] {
+  const rad = (rotationDeg * Math.PI) / 180;
+  return [cx + Math.sin(rad) * distance, cy - Math.cos(rad) * distance];
+}
+
+export function pointerDistance(a: [number, number], b: [number, number]): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}

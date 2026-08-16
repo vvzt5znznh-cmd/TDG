@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pickFeature, pickVertex } from "./hitTest";
-import { translateFeature } from "./geometry";
+import { rotateHandlePoint, translateFeature } from "./geometry";
 import type { MapFeature } from "../schema/types";
 
 const road: MapFeature = {
@@ -59,5 +59,14 @@ describe("translateFeature", () => {
     const moved = translateFeature(road, 5, 5);
     if (moved.featureType !== "terrain") throw new Error("terrain");
     expect(moved.geometry).toEqual({ type: "LineString", coordinates: [[5, 5], [105, 5]] });
+  });
+});
+
+describe("rotate handle", () => {
+  it("sits above the symbol at 0° and follows rotation", () => {
+    expect(rotateHandlePoint(100, 100, 0, 50)).toEqual([100, 50]);
+    const [x, y] = rotateHandlePoint(100, 100, 90, 50);
+    expect(x).toBeCloseTo(150);
+    expect(y).toBeCloseTo(100);
   });
 });

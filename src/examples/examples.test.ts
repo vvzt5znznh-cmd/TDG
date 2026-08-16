@@ -4,8 +4,15 @@ import { validateScenario } from "../validator/validate";
 import { SHIPPED_EXAMPLES } from "./index";
 
 describe("shipped examples", () => {
-  it("includes at least five original scenarios", () => {
-    expect(SHIPPED_EXAMPLES.length).toBeGreaterThanOrEqual(5);
+  it("puts swamp, road, and woods on the vector base, not a baked picture", () => {
+    for (const example of SHIPPED_EXAMPLES) {
+      if (!("dilemma" in example.file.content)) continue;
+      const map = example.file.content.maps[0];
+      expect(map?.base.kind, example.title).toBe("vector");
+      if (map?.base.kind !== "vector") throw new Error("vector");
+      const kinds = map.base.features.map((feature) => feature.kind);
+      expect(kinds, example.title).toEqual(expect.arrayContaining(["wetland", "road", "woods"]));
+    }
   });
 
   it.each(SHIPPED_EXAMPLES.map((example) => [example.title, example] as const))(

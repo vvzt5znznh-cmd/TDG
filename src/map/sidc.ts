@@ -1,4 +1,4 @@
-import type { Affiliation, Confidence, Echelon } from "../schema/types";
+import type { Affiliation, Confidence, Echelon, MilSymbol } from "../schema/types";
 
 export interface UnitCatalogEntry {
   id: string;
@@ -107,4 +107,71 @@ export function frameForAffiliation(affiliation: Affiliation): "rectangle" | "di
   if (affiliation === "neutral") return "square";
   if (affiliation === "unknown") return "cloverleaf";
   return "rectangle";
+}
+
+const AFFILIATION_FROM_CHAR: Record<string, Affiliation> = {
+  F: "friendly",
+  H: "hostile",
+  N: "neutral",
+  U: "unknown",
+};
+
+const ECHELON_FROM_CHAR: Record<string, Echelon> = {
+  A: "fireteam",
+  B: "squad",
+  C: "squad",
+  D: "platoon",
+  E: "company",
+  F: "battalion",
+  H: "brigade",
+};
+
+export interface ParsedSidc {
+  affiliation: Affiliation;
+  anticipated: boolean;
+  functionId: string;
+  headquarters: boolean;
+  taskForce: boolean;
+  echelon: Echelon;
+}
+
+export function parseSidc(sidc: string | undefined): ParsedSidc | null {
+  if (!sidc || sidc.length < 12) return null;
+  const affiliation = AFFILIATION_FROM_CHAR[sidc[1] ?? ""] ?? "unknown";
+  const anticipated = sidc[3] === "A";
+  const functionId = sidc.slice(4, 7);
+  const modifier = sidc[10] ?? "-";
+  const headquarters = modifier === "A" || modifier === "B" || modifier === "C" || modifier === "D";
+  const taskForce = modifier === "B" || modifier === "D" || modifier === "E" || modifier === "G";
+  const echelon = ECHELON_FROM_CHAR[sidc[11] ?? ""] ?? "platoon";
+  return { affiliation, anticipated, functionId, headquarters, taskForce, echelon };
+}
+
+export function functionIdFromSidc(sidc?: string): string {
+  return parseSidc(sidc)?.functionId || "UCI";
+}
+
+export function echelonFromSidc(sidc?: string): Echelon {
+  return parseSidc(sidc)?.echelon ?? "platoon";
+}
+
+/** Rebuild SIDC, frame, and echelon marker from the symbol's own fields. */
+export function withSyncedSidc(symbol: MilSymbol): MilSymbol {
+  const parsed = parseSidc(symbol.sidc);
+  const functionId = parsed?.functionId || "UCI";
+  const echelon = symbol.echelon ?? parsed?.echelon ?? "platoon";
+  return {
+    ...symbol,
+    echelon,
+    sidc: buildSidc({
+      affiliation: symbol.affiliation,
+      confidence: symbol.confidence,
+      echelon,
+      functionId,
+      headquarters: symbol.headquarters,
+      taskForce: symbol.taskForce,
+    }),
+    frame: frameForAffiliation(symbol.affiliation),
+    echelonMarker: ECHELON_MARKER[echelon] || undefined,
+  };
 }

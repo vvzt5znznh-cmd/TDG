@@ -287,11 +287,19 @@ export function MapScene({
 
   return (
     <>
+      <rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#e7e2d1" />
       {imageUrl ? (
-        <image href={imageUrl} x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} opacity={imageOpacity} preserveAspectRatio="none" />
-      ) : (
-        <rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#e7e2d1" />
-      )}
+        <image
+          href={imageUrl}
+          x={0}
+          y={0}
+          width={MAP_WIDTH}
+          height={MAP_HEIGHT}
+          opacity={imageOpacity}
+          preserveAspectRatio="none"
+          pointerEvents="none"
+        />
+      ) : null}
       {showGrid ? <MapGrid /> : null}
       <g className="map-base">
         {ground.map((feature) => (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMapDocument } from "../schema/create";
-import { addBaseTerrain, ensureVectorBase, paperBackgroundSvg } from "./mapBase";
+import { addBaseTerrain, ensureVectorBase, mapImageRef, paperBackgroundSvg } from "./mapBase";
 import { setVertex } from "./geometry";
 
 describe("editable map base", () => {
@@ -58,5 +58,11 @@ describe("editable map base", () => {
   it("builds a blank paper underlay without fake terrain", () => {
     expect(paperBackgroundSvg("Test")).toContain("Test");
     expect(paperBackgroundSvg()).not.toContain("Schematic");
+  });
+
+  it("resolves the tracing image from underlay on a vector map", () => {
+    const map = createMapDocument("img_paper");
+    expect(map.base.kind).toBe("vector");
+    expect(mapImageRef(map)).toBe("img_paper");
   });
 });

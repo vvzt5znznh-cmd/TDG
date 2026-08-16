@@ -301,6 +301,7 @@ const milSymbolSchema = z.object({
   staffComments: z.string().optional(),
   headquarters: z.boolean().optional(),
   taskForce: z.boolean().optional(),
+  echelon: echelonSchema.optional(),
 });
 
 const controlMeasureSchema = z.object({

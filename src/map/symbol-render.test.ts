@@ -38,4 +38,9 @@ describe("milsymbol rendering", () => {
     expect(rendered.href.startsWith("data:image/svg+xml")).toBe(true);
     expect(rendered.width).toBeGreaterThan(40);
   });
+
+  it("keeps a shipped hostile platoon SIDC when rebuilding", () => {
+    const rendered = symbolDataUrl(sample());
+    expect(rendered.valid).toBe(true);
+  });
 });

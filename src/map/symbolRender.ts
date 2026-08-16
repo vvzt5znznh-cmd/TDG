@@ -1,7 +1,7 @@
 import ms from "milsymbol";
 import type { SymbolOptions } from "milsymbol";
 import type { MilSymbol } from "../schema/types";
-import { buildSidc } from "./sidc";
+import { withSyncedSidc } from "./sidc";
 
 ms.setStandard("APP6");
 
@@ -27,17 +27,7 @@ export function symbolOptions(symbol: MilSymbol, size = symbol.sizePx ?? DEFAULT
 }
 
 export function symbolSidc(symbol: MilSymbol): string {
-  return (
-    symbol.sidc ||
-    buildSidc({
-      affiliation: symbol.affiliation,
-      confidence: symbol.confidence,
-      echelon: "platoon",
-      functionId: "UCI",
-      headquarters: symbol.headquarters,
-      taskForce: symbol.taskForce,
-    })
-  );
+  return withSyncedSidc(symbol).sidc ?? "SFGPUCI----D";
 }
 
 export function renderSymbol(symbol: MilSymbol, size = symbol.sizePx ?? DEFAULT_SYMBOL_SIZE) {

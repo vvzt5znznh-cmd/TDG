@@ -10,13 +10,12 @@ import {
   moveFeature,
   patchFeature,
 } from "../../map/mapBase";
-import { buildSidc, ECHELON_MARKER, frameForAffiliation, UNIT_GROUPS } from "../../map/sidc";
+import { buildSidc, ECHELON_MARKER, frameForAffiliation, UNIT_GROUPS, withSyncedSidc } from "../../map/sidc";
 import { defaultViewport, fitViewport, type Viewport } from "../../map/viewport";
 import { newId } from "../../schema/ids";
 import type {
   Affiliation,
   Audience,
-  Confidence,
   ControlMeasureKind,
   Echelon,
   MapDocument,
@@ -75,10 +74,6 @@ function addOverlayFeature(map: MapDocument, layerRole: MapDocument["layers"][nu
   };
 }
 
-function functionIdFromSidc(sidc?: string): string {
-  return sidc?.slice(4, 7) || "UCI";
-}
-
 export function MapEditor({
   scenario,
   assets,
@@ -95,9 +90,7 @@ export function MapEditor({
   const [drawId, setDrawId] = useState<DrawTool["id"] | null>(null);
   const [functionId, setFunctionId] = useState("UCI");
   const [affiliation, setAffiliation] = useState<Affiliation>("friendly");
-  const [confidence, setConfidence] = useState<Confidence>("confirmed");
-  const [echelon, setEchelon] = useState<Echelon>(scenario.meta.echelon === "custom" ? "platoon" : scenario.meta.echelon);
-  const [designation, setDesignation] = useState("");
+  const stampEchelon: Echelon = scenario.meta.echelon === "custom" ? "platoon" : scenario.meta.echelon;
   const [label, setLabel] = useState("");
   const [audience, setAudience] = useState<Audience | "all">("all");
   const [greyscale, setGreyscale] = useState(false);
@@ -107,8 +100,6 @@ export function MapEditor({
   const [snap, setSnap] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [symbolQuery, setSymbolQuery] = useState("");
-  const [headquarters, setHeadquarters] = useState(false);
-  const [taskForce, setTaskForce] = useState(false);
   const [past, setPast] = useState<MapDocument[]>([]);
   const [future, setFuture] = useState<MapDocument[]>([]);
   const strokeRef = useRef<MapDocument | null>(null);
@@ -163,7 +154,13 @@ export function MapEditor({
   const imageRef = map ? mapImageRef(map) ?? "" : "";
   const imageUrl = imageRef ? assets?.[imageRef] : undefined;
   const loadBearingIds = loadBearingFeatureIds(scenario);
-  const stampSidc = buildSidc({ affiliation, confidence, echelon, functionId, headquarters, taskForce });
+  const stampConfidence = affiliation === "hostile" ? "suspected" : "confirmed";
+  const stampSidc = buildSidc({
+    affiliation,
+    confidence: stampConfidence,
+    echelon: stampEchelon,
+    functionId,
+  });
 
   const filteredGroups = useMemo(() => {
     const q = symbolQuery.trim().toLowerCase();
@@ -206,20 +203,18 @@ export function MapEditor({
 
   function placeSymbol(point: [number, number]) {
     if (!map) return;
-    const feature: MilSymbol = {
+    const feature = withSyncedSidc({
       featureType: "symbol",
       id: newId(),
       sidc: stampSidc,
       affiliation,
       frame: frameForAffiliation(affiliation),
-      confidence,
+      confidence: stampConfidence,
       position: { type: "Point", coordinates: point },
-      designation: designation || undefined,
-      echelonMarker: ECHELON_MARKER[echelon] || undefined,
-      headquarters: headquarters || undefined,
-      taskForce: taskForce || undefined,
+      echelon: stampEchelon,
+      echelonMarker: ECHELON_MARKER[stampEchelon] || undefined,
       sizePx: 42,
-    };
+    });
     const role = affiliation === "hostile" ? (audience === "facilitator" ? "enemy_truth" : "enemy_known") : "friendly";
     commit(addOverlayFeature(map, role, feature));
   }
@@ -270,23 +265,12 @@ export function MapEditor({
 
   function patchSelected(patch: object) {
     if (!selected || !map) return;
-    let nextPatch = patch;
     if (selected.featureType === "symbol") {
-      const merged = { ...selected, ...patch } as MilSymbol;
-      nextPatch = {
-        ...patch,
-        sidc: buildSidc({
-          affiliation: merged.affiliation,
-          confidence: merged.confidence,
-          echelon,
-          functionId: functionIdFromSidc(merged.sidc) || functionId,
-          headquarters: merged.headquarters,
-          taskForce: merged.taskForce,
-        }),
-        frame: frameForAffiliation(merged.affiliation),
-      };
+      const next = withSyncedSidc({ ...selected, ...patch } as MilSymbol);
+      commit(patchFeature(map, selected.id, next));
+      return;
     }
-    commit(patchFeature(map, selected.id, nextPatch));
+    commit(patchFeature(map, selected.id, patch));
   }
 
   async function onUpload(files: FileList | null) {
@@ -350,9 +334,11 @@ export function MapEditor({
             </button>
           ))}
         </div>
-        <Field label="Label">
-          <TextInput value={label} onChange={setLabel} placeholder="OBJ WEST / PL RED" />
-        </Field>
+        {tool === "draw" ? (
+          <Field label="Label">
+            <TextInput value={label} onChange={setLabel} placeholder="OBJ WEST / PL RED" />
+          </Field>
+        ) : null}
         {draft.length > 0 ? (
           <div className="row">
             <button type="button" className="btn btn-primary" onClick={finishDraft}>
@@ -364,10 +350,7 @@ export function MapEditor({
           </div>
         ) : null}
 
-        <div className="section-kicker">APP-6 unit</div>
-        <Field label="Search">
-          <TextInput value={symbolQuery} onChange={setSymbolQuery} placeholder="infantry" />
-        </Field>
+        <div className="section-kicker">Stamp unit</div>
         <Field label="Whose">
           <Select
             value={affiliation}
@@ -380,48 +363,20 @@ export function MapEditor({
             onChange={setAffiliation}
           />
         </Field>
-        <Field label="Echelon">
-          <Select
-            value={echelon}
-            options={[
-              { value: "fireteam", label: "Fireteam" },
-              { value: "squad", label: "Squad" },
-              { value: "platoon", label: "Platoon" },
-              { value: "company", label: "Company" },
-              { value: "battalion", label: "Battalion" },
-              { value: "brigade", label: "Brigade" },
-            ]}
-            onChange={setEchelon}
-          />
+        <Field label="Search">
+          <TextInput value={symbolQuery} onChange={setSymbolQuery} placeholder="infantry" />
         </Field>
-        <Field label="Known?">
-          <Select
-            value={confidence}
-            options={[
-              { value: "confirmed", label: "Confirmed" },
-              { value: "suspected", label: "Suspected" },
-              { value: "templated", label: "Templated" },
-            ]}
-            onChange={setConfidence}
-          />
-        </Field>
-        <Field label="Name on symbol">
-          <TextInput value={designation} onChange={setDesignation} placeholder="2. plut" />
-        </Field>
-        <label className="row">
-          <input type="checkbox" checked={headquarters} onChange={(event) => setHeadquarters(event.target.checked)} />
-          HQ staff
-        </label>
-        <label className="row">
-          <input type="checkbox" checked={taskForce} onChange={(event) => setTaskForce(event.target.checked)} />
-          Task force
-        </label>
         {filteredGroups.map((group) => (
           <div key={group.id}>
             <div className="section-kicker">{group.label}</div>
             <div className="symbol-palette">
               {group.units.map((unit) => {
-                const sidc = buildSidc({ affiliation, confidence, echelon, functionId: unit.functionId, headquarters, taskForce });
+                const sidc = buildSidc({
+                  affiliation,
+                  confidence: stampConfidence,
+                  echelon: stampEchelon,
+                  functionId: unit.functionId,
+                });
                 return (
                   <SymbolChip
                     key={unit.id}
@@ -487,7 +442,7 @@ export function MapEditor({
       <div className="map-stage-col">
         <p className="map-mode">
           {tool === "select"
-            ? "Select — drag to move, corners to reshape, handle above a unit to rotate. Wheel zooms. Delete removes."
+            ? "Select — drag to move, corners to reshape, handle above a unit to rotate. Space pans. Wheel zooms."
             : tool === "pan"
               ? "Pan — drag the sheet. Wheel zooms. 0 fits."
               : tool === "stamp"
@@ -509,13 +464,7 @@ export function MapEditor({
           showGrid={showGrid}
           draftPoints={draft}
           onViewport={setViewport}
-          onSelect={(id) => {
-            setSelectedId(id);
-            if (id) {
-              const feature = allGroundAndOverlayFeatures(map).find((item) => item.id === id);
-              if (feature?.featureType === "symbol") setFunctionId(functionIdFromSidc(feature.sidc));
-            }
-          }}
+          onSelect={setSelectedId}
           onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
           onFinishDraft={finishDraft}
           onMove={(id, dx, dy) => {
@@ -552,7 +501,7 @@ export function MapEditor({
             Fit
           </button>
           <span className="hint" style={{ margin: 0 }}>
-            Wheel zoom · H pan · V select · ⌘Z undo
+            Wheel zoom · Space pan · V select · ⌘Z undo
           </span>
         </div>
         {map.legend.autoGenerate ? (
@@ -567,13 +516,7 @@ export function MapEditor({
         ) : null}
       </div>
 
-      <Inspector
-        feature={selected}
-        echelon={echelon}
-        onEchelon={setEchelon}
-        onPatch={(patch) => patchSelected(patch)}
-        onDelete={deleteSelected}
-      />
+      <Inspector feature={selected} onPatch={(patch) => patchSelected(patch)} onDelete={deleteSelected} />
     </div>
   );
 }

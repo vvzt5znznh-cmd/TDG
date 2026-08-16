@@ -519,6 +519,23 @@ textarea {
     margin: 0;
   }
 
+  .map-stage {
+    break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    width: 100%;
+    aspect-ratio: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  .map-stage svg.map-overlay {
+    position: static;
+    inset: auto;
+    width: 100%;
+    height: auto;
+  }
+
   @page {
     size: A4;
     margin: 12mm;

@@ -337,6 +337,8 @@ export interface MilSymbol {
   staffComments?: string;
   headquarters?: boolean;
   taskForce?: boolean;
+  /** APP-6 echelon; kept in sync with SIDC position 12. */
+  echelon?: Echelon;
 }
 
 export interface ControlMeasure {
