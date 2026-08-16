@@ -21,7 +21,8 @@ export function parseTDGFile(raw: unknown): TDGFile {
   const record = migrated as Record<string, unknown>;
   const body = tdgFileBodySchema.parse(record);
   const unknownKeys = extractUnknownKeys(record);
-  return unknownKeys ? { ...body, unknownKeys } : body;
+  const file = body as TDGFile;
+  return unknownKeys ? { ...file, unknownKeys } : file;
 }
 
 export function parseTDGFileText(text: string): TDGFile {

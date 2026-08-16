@@ -43,7 +43,7 @@ const UNIT_PATTERN =
   /\b(?:\d+(?:st|nd|rd|th)\s+(?:Squad|Platoon|Company|Battalion|Troop|Section)|(?:Squad|Platoon|Company|Battalion)\s+(?:\d+|[A-Z])\b|\d+\.\s*(?:plut|plt|kompani|coy)\b)/gi;
 
 const NAMED_FEATURE_PATTERN =
-  /\b(?:OBJ(?:ECTIVE)?|PL|EA|BP|TRP|LZ|Hill|Route|Bridge|Woods|Swamp|Myr|River|Lake|Ridge|Road|Trail)\s+[A-Za-z0-9\-]+/gi;
+  /\b(?:OBJ(?:ECTIVE)?|PL|EA|BP|TRP|LZ)\s+[A-Z][A-Z0-9-]+|\b(?:Hill|Route)\s+[A-Z0-9][A-Za-z0-9-]*/g;
 
 function issue(code: IssueCode, level: IssueLevel, message: string, path?: string): ValidationIssue {
   return { code, level, message, path };

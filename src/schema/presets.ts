@@ -106,12 +106,12 @@ function emptyDelta() {
 }
 
 export function buildOutcomeStates(missionType: MissionType): OutcomeState[] {
-  const presets = outcomePresetsFor(missionType).map((preset) => ({
+  const presets: OutcomeState[] = outcomePresetsFor(missionType).map((preset) => ({
     id: newId(),
     label: preset.label,
     description: preset.description,
     stateDelta: emptyDelta(),
-    kind: "standard" as const,
+    kind: "standard",
   }));
 
   presets.push({

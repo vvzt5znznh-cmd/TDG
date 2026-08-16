@@ -1,32 +1,36 @@
-# React + TypeScript + Vite
+# TDG Builder
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A local-first authoring tool for Tactical Decision Games. One authoring pass produces a student handout and a facilitator packet. There is no account, no server, and no score.
 
-Currently, two official plugins are available:
+A shared scenario **is** a `.tdg.json` file. Save is the primary persistence model. The browser cache is only a convenience.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+```bash
+npm test
+npm run build
+```
+
+Open the app, create or duplicate a shipped example, then **Save** a `.tdg.json` file. Print routes use the browser’s print dialog (Save as PDF) once the checker reports no errors.
+
+## v1
+
+- Scenario authoring: meta, dilemma, situation, requirement, outcomes, facilitator notes
+- Mission-type presets for outcome states, always including time-expired / no-decision
+- Task organization tree with a per-scenario status overlay (list + diagram)
+- Raster base map with symbol and control-measure overlays, student/facilitator layers, greyscale preview
+- Validator (errors block print; warnings do not)
+- Student handout and facilitator packet
+- Explicit file open/save (File System Access API where available; download / file-input fallback)
+- Eight original fictionalized example scenarios
+
+Not in v1: vector terrain editor, force-template library, campaigns, student timer, scoring.
+
+## Schema
+
+`schemaVersion` is `1.0.0`. Unknown top-level keys are preserved on round-trip. The format is additive-only; see `src/schema/`.

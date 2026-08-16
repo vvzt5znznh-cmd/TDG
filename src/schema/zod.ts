@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { TDGFile } from "./types";
+import type { TaskOrgNode, TDGFile, TemplateNode } from "./types";
 
 const positionSchema = z.union([
   z.tuple([z.number(), z.number()]),
@@ -169,14 +169,7 @@ export const unitStatusSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const taskOrgNodeSchema: z.ZodType<{
-  id: string;
-  templateNodeRef?: string;
-  designation: string;
-  modifier: "reinforced" | "reduced" | "none";
-  attachedFrom?: string;
-  children: unknown[];
-}> = z.lazy(() =>
+export const taskOrgNodeSchema: z.ZodType<TaskOrgNode> = z.lazy(() =>
   z.object({
     id: z.string(),
     templateNodeRef: z.string().optional(),
@@ -461,12 +454,7 @@ export const campaignSchema = z.object({
   nodes: z.array(campaignNodeSchema),
 });
 
-const templateNodeSchema: z.ZodType<{
-  id: string;
-  designation: string;
-  children: unknown[];
-  equipment?: string;
-}> = z.lazy(() =>
+const templateNodeSchema: z.ZodType<TemplateNode> = z.lazy(() =>
   z.object({
     id: z.string(),
     designation: z.string(),
@@ -552,5 +540,5 @@ export function parseFileBody(raw: unknown): z.infer<typeof tdgFileBodySchema> {
 export type ParsedTDGFileBody = z.infer<typeof tdgFileBodySchema>;
 
 export function assertTDGFile(file: ParsedTDGFileBody): TDGFile {
-  return file;
+  return file as TDGFile;
 }
