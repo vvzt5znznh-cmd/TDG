@@ -72,6 +72,22 @@ describe("editable map base", () => {
     expect(mapImageRef(map)).toBe("img_paper");
   });
 
+  it("accepts the new terrain kinds in the file schema", async () => {
+    const { mapFeatureSchema } = await import("../schema/zod");
+    for (const kind of ["mountain", "river", "stream"]) {
+      const parsed = mapFeatureSchema.safeParse({
+        featureType: "terrain",
+        id: `t_${kind}`,
+        kind,
+        geometry:
+          kind === "mountain"
+            ? { type: "Polygon", coordinates: [[[0, 0], [100, 0], [60, 80], [0, 0]]] }
+            : { type: "LineString", coordinates: [[0, 0], [200, 40]] },
+      });
+      expect(parsed.success, kind).toBe(true);
+    }
+  });
+
   it("adds a missing identity overlay on old maps", () => {
     const map = createMapDocument("img_1");
     map.layers = map.layers.filter((layer) => layer.role !== "neutral" && layer.role !== "unknown");

@@ -1,7 +1,8 @@
 import type { ReactElement } from "react";
-import type { Audience, ControlMeasure, GeoGeometry, MapDocument, MapFeature, TerrainFeatureKind } from "../../schema/types";
-import { pointsOf, toSvgPoints } from "../../map/geometry";
+import type { Audience, ControlMeasure, GeoGeometry, MapDocument, MapFeature, TerrainFeature, TerrainFeatureKind } from "../../schema/types";
+import { centroid, editableVertices, pointsOf, toSvgPoints } from "../../map/geometry";
 import { arrowHeadPoints, controlMeasureStyle, labelAnchor, tickAt } from "../../map/controlGraphics";
+import { isMissionTask, missionTaskGlyph } from "../../map/missionTasks";
 import { baseFeatures, isRasterUnderlay, syntheticBaseLayer } from "../../map/mapBase";
 import { MAP_HEIGHT, MAP_WIDTH } from "../../map/viewport";
 import { SymbolMark } from "./MilSymbolMark";
@@ -16,13 +17,16 @@ export const AFFILIATION_COLOR = {
 const TERRAIN_PAINT: Record<TerrainFeatureKind, { color: string; fill: string; width: number }> = {
   contour: { color: "#8a6a40", fill: "#8a6a40", width: 1.5 },
   spot_elevation: { color: "#5a4a38", fill: "#5a4a38", width: 2 },
+  mountain: { color: "#7a5c40", fill: "#d3c2a0", width: 2.5 },
   woods: { color: "#3d4a32", fill: "#5d7a52", width: 2 },
   water: { color: "#2d4a62", fill: "#6a8fa8", width: 2 },
+  river: { color: "#2d4a62", fill: "#7fa3bc", width: 11 },
+  stream: { color: "#3d647f", fill: "#7fa3bc", width: 3 },
   wetland: { color: "#2d5a4e", fill: "#6a9a88", width: 2 },
   built_up: { color: "#5a5248", fill: "#b8aea0", width: 2 },
-  road: { color: "#6b5344", fill: "#6b5344", width: 8 },
-  trail: { color: "#8a6a50", fill: "#8a6a50", width: 4 },
-  bridge: { color: "#4a4038", fill: "#4a4038", width: 8 },
+  road: { color: "#4a4038", fill: "#c9b088", width: 10 },
+  trail: { color: "#6b5344", fill: "#6b5344", width: 3.5 },
+  bridge: { color: "#4a4038", fill: "#efe9d6", width: 10 },
   custom: { color: "#3e4c34", fill: "#3e4c34", width: 2 },
 };
 
@@ -30,6 +34,41 @@ function terrainPaint(kind: TerrainFeatureKind, loadBearing?: boolean, highlight
   if (loadBearing) return { color: "#9a2f2a", fill: "#9a2f2a", width: 4 };
   const paint = TERRAIN_PAINT[kind];
   return highlight ? { ...paint, width: paint.width + 2 } : paint;
+}
+
+/** FM 3-90-1 tactical mission task graphic, rendered from shared path math. */
+function MissionTaskShape({ feature, color }: { feature: ControlMeasure; color: string }) {
+  if (!isMissionTask(feature.kind)) return null;
+  const glyph = missionTaskGlyph(feature.kind, pointsOf(feature.geometry));
+  return (
+    <g>
+      {glyph.strokes.map((stroke, index) => (
+        <path
+          key={`s${index}`}
+          d={stroke.d}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke.width ?? 3}
+          strokeDasharray={stroke.dash}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ))}
+      {glyph.fills.map((d, index) => (
+        <path key={`f${index}`} d={d} fill={color} stroke="none" />
+      ))}
+      {glyph.texts.map((text, index) => (
+        <text key={`t${index}`} x={text.x} y={text.y} textAnchor="middle" fontSize={text.size ?? 16} fontFamily="serif" fontWeight={700} fill={color}>
+          {text.text}
+        </text>
+      ))}
+      {feature.label ? (
+        <text x={glyph.labelAt[0]} y={glyph.labelAt[1]} textAnchor="middle" fontSize={14} fontFamily="serif" fontWeight={700} fill={color}>
+          {feature.label}
+        </text>
+      ) : null}
+    </g>
+  );
 }
 
 export function ControlMeasureShape({
@@ -45,6 +84,9 @@ export function ControlMeasureShape({
   const style = controlMeasureStyle(feature.kind);
   const color = loadBearing || highlight ? "#9a2f2a" : style.color;
   const width = highlight ? style.width + 1.5 : style.width;
+  if (isMissionTask(feature.kind)) {
+    return <MissionTaskShape feature={feature} color={color} />;
+  }
   const [lx, ly] = labelAnchor(feature);
   const label = (
     <text x={lx + 10} y={ly - 8} fontSize={14} fontFamily="serif" fill={color} fontWeight={700}>
@@ -135,6 +177,104 @@ export function ControlMeasureShape({
   return null;
 }
 
+/** Shrink a ring toward its centroid — cheap nested contour lines for hills. */
+function innerRing(pts: [number, number][], factor: number): [number, number][] {
+  const [cx, cy] = centroid(pts);
+  return pts.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
+}
+
+/** Ground drawn like a paper map: cased roads, contoured hills, hatched towns. */
+function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFeature; highlight?: boolean; loadBearing?: boolean }) {
+  const pts = pointsOf(feature.geometry);
+  if (pts.length === 0) return null;
+  const paint = terrainPaint(feature.kind, loadBearing, highlight);
+  const label =
+    feature.label && pts[0] ? (
+      <text x={pts[0][0]} y={pts[0][1] - 8} fontSize={13} fontFamily="serif" fill={paint.color}>
+        {feature.label}
+      </text>
+    ) : null;
+
+  if (feature.geometry.type === "LineString" && pts.length >= 2) {
+    const line = toSvgPoints(pts);
+    if (feature.kind === "river") {
+      return (
+        <g>
+          <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points={line} fill="none" stroke={paint.fill} strokeWidth={paint.width * 0.55} strokeLinecap="round" strokeLinejoin="round" />
+          {label}
+        </g>
+      );
+    }
+    if (feature.kind === "road" || feature.kind === "bridge") {
+      return (
+        <g>
+          <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points={line} fill="none" stroke={paint.fill} strokeWidth={paint.width * 0.55} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={feature.kind === "bridge" ? "10 6" : undefined} />
+          {label}
+        </g>
+      );
+    }
+    if (feature.kind === "trail") {
+      return (
+        <g>
+          <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeDasharray="12 9" strokeLinecap="round" strokeLinejoin="round" />
+          {label}
+        </g>
+      );
+    }
+    return (
+      <g>
+        <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" />
+        {label}
+      </g>
+    );
+  }
+
+  if (feature.geometry.type === "Polygon" && pts.length >= 3) {
+    const ring = editableVertices(feature.geometry);
+    if (feature.kind === "mountain") {
+      const [cx, cy] = centroid(ring);
+      return (
+        <g>
+          <polygon points={toSvgPoints(pts)} fill={paint.fill} fillOpacity={0.5} stroke={paint.color} strokeWidth={paint.width} strokeLinejoin="round" />
+          <polygon points={toSvgPoints(innerRing(ring, 0.64))} fill="none" stroke={paint.color} strokeWidth={1.6} strokeLinejoin="round" />
+          <polygon points={toSvgPoints(innerRing(ring, 0.32))} fill="none" stroke={paint.color} strokeWidth={1.6} strokeLinejoin="round" />
+          <polygon points={`${cx},${cy - 8} ${cx + 7},${cy + 5} ${cx - 7},${cy + 5}`} fill={paint.color} />
+          {label}
+        </g>
+      );
+    }
+    if (feature.kind === "built_up") {
+      return (
+        <g>
+          <polygon points={toSvgPoints(pts)} fill={paint.fill} fillOpacity={0.65} stroke={paint.color} strokeWidth={paint.width} strokeLinejoin="round" />
+          <polygon points={toSvgPoints(pts)} fill="url(#tdg-builtup)" stroke="none" />
+          {label}
+        </g>
+      );
+    }
+    return (
+      <g>
+        <polygon points={toSvgPoints(pts)} fill={paint.fill} fillOpacity={0.42} stroke={paint.color} strokeWidth={paint.width} strokeLinejoin="round" />
+        {feature.label && pts[0] ? (
+          <text x={pts[0][0]} y={pts[0][1] + 16} fontSize={13} fontFamily="serif" fill={paint.color}>
+            {feature.label}
+          </text>
+        ) : null}
+      </g>
+    );
+  }
+
+  const [x, y] = pts[0] ?? [0, 0];
+  return (
+    <g>
+      <circle cx={x} cy={y} r={7} fill="#fff" stroke={paint.color} strokeWidth={paint.width} />
+      {label}
+    </g>
+  );
+}
+
 export function FeatureShape({
   feature,
   highlight,
@@ -150,9 +290,12 @@ export function FeatureShape({
   if (feature.featureType === "control_measure") {
     return <ControlMeasureShape feature={feature} highlight={highlight} loadBearing={loadBearing} />;
   }
+  if (feature.featureType === "terrain") {
+    return <TerrainShape feature={feature} highlight={highlight} loadBearing={loadBearing} />;
+  }
   const pts = pointsOf(feature.geometry);
   if (pts.length === 0) return null;
-  const paint = feature.featureType === "terrain" ? terrainPaint(feature.kind, loadBearing, highlight) : { color: "#3e4c34", fill: "#3e4c34", width: highlight ? 4 : 2 };
+  const paint = { color: "#3e4c34", fill: "#3e4c34", width: highlight || loadBearing ? 4 : 2 };
   if (feature.geometry.type === "Point") {
     const [x, y] = pts[0] ?? [0, 0];
     return (
@@ -288,6 +431,11 @@ export function MapScene({
 
   return (
     <>
+      <defs>
+        <pattern id="tdg-builtup" width="18" height="18" patternUnits="userSpaceOnUse">
+          <rect x="3" y="3" width="7" height="7" fill="#5a5248" fillOpacity="0.5" />
+        </pattern>
+      </defs>
       <rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#e7e2d1" />
       {tracing ? (
         <image

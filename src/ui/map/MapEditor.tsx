@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { readFileAsDataUrl } from "../../io/files";
 import { setVertex } from "../../map/geometry";
 import {
@@ -11,6 +11,7 @@ import {
   moveFeature,
   patchFeature,
 } from "../../map/mapBase";
+import { MISSION_TASKS, type MissionTaskDef } from "../../map/missionTasks";
 import { withSyncedSidc } from "../../map/sidc";
 import { createSymbolFromStamp, layerRoleForAffiliation, type UnitStamp } from "../../map/stamp";
 import {
@@ -43,31 +44,58 @@ import { UnitTray } from "./UnitTray";
 
 type DrawKind = "point" | "line" | "polygon";
 
-type DrawTool =
-  | { id: "woods"; label: "Woods"; terrain: TerrainFeatureKind; draw: "polygon" }
-  | { id: "water"; label: "Water"; terrain: TerrainFeatureKind; draw: "polygon" }
-  | { id: "wetland"; label: "Swamp"; terrain: TerrainFeatureKind; draw: "polygon" }
-  | { id: "road"; label: "Road"; terrain: TerrainFeatureKind; draw: "line" }
-  | { id: "objective"; label: "OBJ"; control: ControlMeasureKind; draw: "point" }
-  | { id: "phase_line"; label: "PL"; control: ControlMeasureKind; draw: "line" }
-  | { id: "axis"; label: "Axis"; control: ControlMeasureKind; draw: "line" }
-  | { id: "boundary"; label: "Bdy"; control: ControlMeasureKind; draw: "line" }
-  | { id: "trp"; label: "TRP"; control: ControlMeasureKind; draw: "point" };
+interface DrawToolDef {
+  id: string;
+  label: string;
+  draw: DrawKind;
+  terrain?: TerrainFeatureKind;
+  control?: ControlMeasureKind;
+  hint?: string;
+  /** Features whose shape says everything start unlabeled. */
+  defaultLabel?: string;
+}
 
-const GROUND_TOOLS: DrawTool[] = [
-  { id: "woods", label: "Woods", terrain: "woods", draw: "polygon" },
-  { id: "water", label: "Water", terrain: "water", draw: "polygon" },
-  { id: "wetland", label: "Swamp", terrain: "wetland", draw: "polygon" },
-  { id: "road", label: "Road", terrain: "road", draw: "line" },
+const GROUND_TOOLS: DrawToolDef[] = [
+  { id: "mountain", label: "Mountain", draw: "polygon", terrain: "mountain", hint: "Click the hill mass outline. Enter finishes." },
+  { id: "woods", label: "Woods", draw: "polygon", terrain: "woods" },
+  { id: "water", label: "Lake", draw: "polygon", terrain: "water" },
+  { id: "wetland", label: "Swamp", draw: "polygon", terrain: "wetland" },
+  { id: "built_up", label: "Town", draw: "polygon", terrain: "built_up" },
+  { id: "river", label: "River", draw: "line", terrain: "river" },
+  { id: "stream", label: "Stream", draw: "line", terrain: "stream" },
+  { id: "road", label: "Road", draw: "line", terrain: "road", hint: "Main road. Use Path for the small one." },
+  { id: "trail", label: "Path", draw: "line", terrain: "trail", hint: "Small road or trail." },
+  { id: "bridge", label: "Bridge", draw: "line", terrain: "bridge", hint: "Short line across the water." },
 ];
 
-const GRAPHIC_TOOLS: DrawTool[] = [
-  { id: "objective", label: "OBJ", control: "objective", draw: "point" },
-  { id: "phase_line", label: "PL", control: "phase_line", draw: "line" },
-  { id: "axis", label: "Axis", control: "axis_of_advance", draw: "line" },
-  { id: "boundary", label: "Bdy", control: "boundary", draw: "line" },
-  { id: "trp", label: "TRP", control: "trp", draw: "point" },
+const MEASURE_TOOLS: DrawToolDef[] = [
+  { id: "objective", label: "OBJ", draw: "point", control: "objective", defaultLabel: "OBJ" },
+  { id: "phase_line", label: "PL", draw: "line", control: "phase_line", defaultLabel: "PL" },
+  { id: "axis", label: "Axis", draw: "line", control: "axis_of_advance", defaultLabel: "AXIS" },
+  { id: "boundary", label: "Boundary", draw: "line", control: "boundary", defaultLabel: "" },
+  { id: "trp", label: "TRP", draw: "point", control: "trp", defaultLabel: "TRP" },
+  { id: "checkpoint", label: "CKP", draw: "point", control: "checkpoint", defaultLabel: "CKP" },
+  { id: "lz", label: "LZ", draw: "point", control: "lz", defaultLabel: "LZ" },
 ];
+
+function taskTool(def: MissionTaskDef): DrawToolDef {
+  return {
+    id: def.kind,
+    label: def.label,
+    draw: def.draw,
+    control: def.kind,
+    hint: def.hint,
+    defaultLabel: "",
+  };
+}
+
+const TASK_GROUPS: { id: string; label: string; tools: DrawToolDef[] }[] = [
+  { id: "actions", label: "Actions", tools: MISSION_TASKS.filter((t) => t.group === "actions").map(taskTool) },
+  { id: "effects", label: "Effects on the enemy", tools: MISSION_TASKS.filter((t) => t.group === "effects").map(taskTool) },
+  { id: "security", label: "Security and fires", tools: MISSION_TASKS.filter((t) => t.group === "security").map(taskTool) },
+];
+
+const ALL_TOOLS: DrawToolDef[] = [...GROUND_TOOLS, ...MEASURE_TOOLS, ...TASK_GROUPS.flatMap((group) => group.tools)];
 
 function replaceMap(scenario: Scenario, map: MapDocument): Scenario {
   return { ...scenario, maps: scenario.maps.map((item) => (item.id === map.id ? map : item)) };
@@ -80,6 +108,15 @@ function addOverlayFeature(map: MapDocument, layerRole: MapDocument["layers"][nu
     ...map,
     layers: map.layers.map((item) => (item.id === layer.id ? { ...item, features: [...item.features, feature] } : item)),
   };
+}
+
+/** Live cursor position without re-rendering the whole studio at pointer rate. */
+function CoordReadout({ register }: { register: (fn: (pt: [number, number] | null) => void) => void }) {
+  const [pt, setPt] = useState<[number, number] | null>(null);
+  useEffect(() => {
+    register(setPt);
+  }, [register]);
+  return <span className="studio-coords">{pt ? `${Math.round(pt[0])} · ${Math.round(pt[1])}` : "— · —"}</span>;
 }
 
 export function MapEditor({
@@ -95,7 +132,7 @@ export function MapEditor({
 }) {
   const map = scenario.maps[0];
   const [tool, setTool] = useState<MapTool>("select");
-  const [drawId, setDrawId] = useState<DrawTool["id"] | null>(null);
+  const [drawId, setDrawId] = useState<string | null>(null);
   const stampEchelon: Echelon = scenario.meta.echelon === "custom" ? "platoon" : scenario.meta.echelon;
   const [unitDraft, setUnitDraft] = useState<UnitStamp>({
     functionId: "UCI",
@@ -128,8 +165,12 @@ export function MapEditor({
   const audienceRef = useRef(audience);
   audienceRef.current = audience;
   const placeSessionRef = useRef<{ cancelled: boolean } | null>(null);
+  const coordListenerRef = useRef<((pt: [number, number] | null) => void) | null>(null);
+  const registerCoord = useCallback((fn: (pt: [number, number] | null) => void) => {
+    coordListenerRef.current = fn;
+  }, []);
 
-  const drawTool = [...GROUND_TOOLS, ...GRAPHIC_TOOLS].find((item) => item.id === drawId);
+  const drawTool = ALL_TOOLS.find((item) => item.id === drawId);
 
   useEffect(() => {
     if (!map) return;
@@ -329,22 +370,23 @@ export function MapEditor({
     if (!map || !drawTool) return;
     const geometry = geometryFromDraft(kind, points);
     if (!geometry) return;
-    if ("terrain" in drawTool) {
+    const featureLabel = label || drawTool.defaultLabel || "";
+    if (drawTool.terrain) {
       const feature: TerrainFeature = {
         featureType: "terrain",
         id: newId(),
         kind: drawTool.terrain,
         geometry,
-        label: label || drawTool.label,
+        label: featureLabel || undefined,
       };
       commit(addBaseTerrain(map, feature));
-    } else {
+    } else if (drawTool.control) {
       const feature: MapFeature = {
         featureType: "control_measure",
         id: newId(),
         kind: drawTool.control,
         geometry,
-        label: label || drawTool.label,
+        label: featureLabel,
       };
       commit(addOverlayFeature(map, "control_measures", feature));
     }
@@ -379,210 +421,235 @@ export function MapEditor({
     });
   }
 
-  function chooseDraw(item: DrawTool) {
+  function chooseDraw(item: DrawToolDef) {
     setDrawId(item.id);
     setTool("draw");
     setDraft([]);
     setSelectedId(null);
   }
 
-  const canvasTool: MapTool = tool;
+  function toolButton(item: DrawToolDef) {
+    return (
+      <button
+        key={item.id}
+        type="button"
+        className={`tool-btn ${drawId === item.id ? "is-active" : ""}`}
+        title={item.hint ?? item.label}
+        onClick={() => chooseDraw(item)}
+      >
+        {item.label}
+      </button>
+    );
+  }
+
+  const modeHint = placing
+    ? "Place — drop on the sheet. Esc cancels."
+    : tool === "select"
+      ? "Select — drag the unit picture onto the sheet. Drag to move, corners reshape, handle rotates."
+      : tool === "pan"
+        ? "Pan — drag the sheet. Wheel zooms. 0 fits."
+        : drawTool?.draw === "point"
+          ? `${drawTool.label} — click the map. ${drawTool.hint ?? ""}`
+          : `${drawTool?.label ?? "Draw"} — click points, Enter or double-click finishes, Esc cancels. ${drawTool?.hint ?? ""}`;
 
   return (
-    <div className="map-workspace map-workspace-v2">
-      <aside className="map-rail">
-        <div className="map-toolbar">
-          <button type="button" className={`btn ${tool === "select" && !drawId ? "btn-primary" : ""}`} onClick={() => { setTool("select"); setDrawId(null); }}>
+    <div className="map-studio">
+      <div className="studio-toolbar">
+        <div className="studio-toolbar-group">
+          <button type="button" className={`tool-btn ${tool === "select" && !drawId ? "is-active" : ""}`} title="Select (V)" onClick={() => { setTool("select"); setDrawId(null); }}>
             Select
           </button>
-          <button type="button" className={`btn ${tool === "pan" ? "btn-primary" : ""}`} onClick={() => { setTool("pan"); setDrawId(null); }}>
+          <button type="button" className={`tool-btn ${tool === "pan" ? "is-active" : ""}`} title="Pan (H or Space)" onClick={() => { setTool("pan"); setDrawId(null); }}>
             Pan
           </button>
-          <button type="button" className="btn" disabled={past.length === 0} onClick={undo}>
+        </div>
+        <div className="studio-toolbar-group">
+          <button type="button" className="tool-btn" disabled={past.length === 0} onClick={undo} title="Undo (⌘Z)">
             Undo
           </button>
-          <button type="button" className="btn" disabled={future.length === 0} onClick={redo}>
+          <button type="button" className="tool-btn" disabled={future.length === 0} onClick={redo} title="Redo (⇧⌘Z)">
             Redo
           </button>
         </div>
-
-        <label className="btn btn-primary" style={{ width: "100%", textAlign: "center" }}>
+        <div className="studio-toolbar-group">
+          <button type="button" className="tool-btn" onClick={() => setViewport((vp) => zoomViewport(vp, 0.8, viewportCenter(vp)))} title="Zoom out (-)">
+            −
+          </button>
+          <span className="studio-zoom">{Math.round(viewport.zoom * 100)}%</span>
+          <button type="button" className="tool-btn" onClick={() => setViewport((vp) => zoomViewport(vp, 1.25, viewportCenter(vp)))} title="Zoom in (+)">
+            +
+          </button>
+          <button type="button" className="tool-btn" onClick={() => setViewport(fitViewport())} title="Fit the sheet (0)">
+            Fit
+          </button>
+        </div>
+        <div className="studio-toolbar-group">
+          <button type="button" className={`tool-btn ${showGrid ? "is-on" : ""}`} onClick={() => setShowGrid((v) => !v)} title="Grid">
+            Grid
+          </button>
+          <button type="button" className={`tool-btn ${snap ? "is-on" : ""}`} onClick={() => setSnap((v) => !v)} title="Snap to grid">
+            Snap
+          </button>
+          <button type="button" className={`tool-btn ${greyscale ? "is-on" : ""}`} onClick={() => setGreyscale((v) => !v)} title="Print preview in greyscale">
+            Grey
+          </button>
+        </div>
+        <div className="studio-toolbar-group">
+          <Select
+            value={audience}
+            options={[
+              { value: "all", label: "All layers" },
+              { value: "student", label: "Student view" },
+              { value: "facilitator", label: "Facilitator view" },
+            ]}
+            onChange={setAudience}
+          />
+        </div>
+        <label className="tool-btn studio-upload" title="Trace over a sketch or photo">
           Tracing image
           <input type="file" accept="image/*" hidden onChange={(event) => void onUpload(event.target.files)} />
         </label>
-
-        <div className="section-kicker">Ground</div>
-        <div className="map-toolbar">
-          {GROUND_TOOLS.map((item) => (
-            <button key={item.id} type="button" className={`btn ${drawId === item.id ? "btn-primary" : ""}`} onClick={() => chooseDraw(item)}>
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="section-kicker">Control measures</div>
-        <div className="map-toolbar">
-          {GRAPHIC_TOOLS.map((item) => (
-            <button key={item.id} type="button" className={`btn ${drawId === item.id ? "btn-primary" : ""}`} onClick={() => chooseDraw(item)}>
-              {item.label}
-            </button>
-          ))}
-        </div>
-        {tool === "draw" ? (
-          <Field label="Label">
-            <TextInput value={label} onChange={setLabel} placeholder="OBJ WEST / PL RED" />
-          </Field>
-        ) : null}
-        {draft.length > 0 ? (
-          <div className="row">
-            <button type="button" className="btn btn-primary" onClick={finishDraft}>
-              Finish ({draft.length})
-            </button>
-            <button type="button" className="btn" onClick={() => setDraft([])}>
-              Cancel
-            </button>
-          </div>
-        ) : null}
-
-        <UnitTray
-          stamp={unitDraft}
-          query={symbolQuery}
-          placing={placing}
-          onStamp={setUnitDraft}
-          onQuery={setSymbolQuery}
-          onPlacePointerDown={onPlacePointerDown}
-        />
-
-        <details>
-          <summary>Map settings</summary>
-          <Field label="View">
-            <Select
-              value={audience}
-              options={[
-                { value: "all", label: "All layers" },
-                { value: "student", label: "Student" },
-                { value: "facilitator", label: "Facilitator" },
-              ]}
-              onChange={setAudience}
-            />
-          </Field>
-          <label className="row">
-            <input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} />
-            Grid
-          </label>
-          <label className="row">
-            <input type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} />
-            Snap
-          </label>
-          <label className="row">
-            <input type="checkbox" checked={greyscale} onChange={(event) => setGreyscale(event.target.checked)} />
-            Greyscale
-          </label>
-          <Field label="Scale (m)">
-            <NumberInput min={1} value={map.scaleBar.meters} onChange={(meters) => commit({ ...map, scaleBar: { ...map.scaleBar, meters } })} />
-          </Field>
-          <Field label="North rotation">
-            <NumberInput value={map.northArrow.rotationDeg} onChange={(rotationDeg) => commit({ ...map, northArrow: { rotationDeg } })} />
-          </Field>
-          <Field label="Tracing opacity">
-            <NumberInput
-              min={0}
-              max={1}
-              step={0.05}
-              value={map.underlay?.opacity ?? 1}
-              onChange={(opacity) => commit({ ...map, underlay: map.underlay ? { ...map.underlay, opacity } : undefined })}
-            />
-          </Field>
-        </details>
-      </aside>
-
-      <div className="map-stage-col">
-        <p className="map-mode">
-          {placing
-            ? "Place — drop on the sheet. Esc cancels."
-            : tool === "select"
-              ? "Select — drag the unit picture from the rail onto the sheet. Drag to move, corners to reshape, handle above a unit to rotate."
-              : tool === "pan"
-                ? "Pan — drag the sheet. Wheel zooms. 0 fits."
-                : drawTool?.draw === "point"
-                  ? `Place ${drawTool.label} — click the map.`
-                  : `Draw ${drawTool?.label ?? "shape"} — click points, Enter or double-click to finish.`}
-        </p>
-        <MapCanvas
-          map={map}
-          imageUrl={imageUrl}
-          audience={audience}
-          greyscale={greyscale}
-          loadBearingIds={loadBearingIds}
-          selectedId={selectedId}
-          viewport={viewport}
-          tool={canvasTool}
-          snap={snap}
-          showGrid={showGrid}
-          draftPoints={draft}
-          svgRef={svgRef}
-          ghost={ghost}
-          placing={placing}
-          onViewport={setViewport}
-          onSelect={setSelectedId}
-          onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
-          onFinishDraft={finishDraft}
-          onMove={(id, dx, dy) => {
-            const current = mapRef.current;
-            if (!current) return;
-            onChange(replaceMap(scenario, moveFeature(current, id, dx, dy)));
-          }}
-          onMoveVertex={(id, index, point: Point) => {
-            const current = mapRef.current;
-            if (!current) return;
-            const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
-            if (!feature || !("geometry" in feature)) return;
-            onChange(replaceMap(scenario, patchFeature(current, id, { geometry: setVertex(feature.geometry, index, point.coordinates) })));
-          }}
-          onRotate={(id, rotationDeg) => {
-            const current = mapRef.current;
-            if (!current) return;
-            onChange(replaceMap(scenario, patchFeature(current, id, { rotationDeg })));
-          }}
-          onStrokeStart={() => {
-            strokeRef.current = mapRef.current ?? null;
-          }}
-          onStrokeEnd={() => {
-            if (strokeRef.current) {
-              setPast((items) => [...items.slice(-79), strokeRef.current!]);
-              setFuture([]);
-              strokeRef.current = null;
-            }
-          }}
-        />
-        <div className="map-hud">
-          <button type="button" className="btn" onClick={() => setViewport((vp) => zoomViewport(vp, 0.8, viewportCenter(vp)))}>
-            −
-          </button>
-          <span>{Math.round(viewport.zoom * 100)}%</span>
-          <button type="button" className="btn" onClick={() => setViewport((vp) => zoomViewport(vp, 1.25, viewportCenter(vp)))}>
-            +
-          </button>
-          <button type="button" className="btn" onClick={() => setViewport(fitViewport())}>
-            Fit
-          </button>
-          <span className="hint" style={{ margin: 0 }}>
-            Wheel zoom · Space pan · V select · ⌘Z undo
-          </span>
-        </div>
-        {map.legend.autoGenerate ? (
-          <div className="legend">
-            {usedLegend(map, audience).map((entry) => (
-              <div className="legend-item" key={entry.id}>
-                <span style={{ width: 12, height: 12, background: entry.color, display: "inline-block", border: "1px solid #1b2118" }} />
-                {entry.label}
-              </div>
-            ))}
-          </div>
-        ) : null}
       </div>
 
-      <Inspector feature={selected} onPatch={(patch) => patchSelected(patch)} onDelete={deleteSelected} />
+      <div className="studio-body">
+        <aside className="studio-dock">
+          <details open className="dock-group">
+            <summary>Ground</summary>
+            <div className="tool-grid">{GROUND_TOOLS.map(toolButton)}</div>
+          </details>
+
+          <details open className="dock-group">
+            <summary>Units</summary>
+            <UnitTray
+              stamp={unitDraft}
+              query={symbolQuery}
+              placing={placing}
+              onStamp={setUnitDraft}
+              onQuery={setSymbolQuery}
+              onPlacePointerDown={onPlacePointerDown}
+            />
+          </details>
+
+          <details className="dock-group">
+            <summary>Mission tasks</summary>
+            {TASK_GROUPS.map((group) => (
+              <div key={group.id} className="dock-subgroup">
+                <div className="section-kicker">{group.label}</div>
+                <div className="tool-grid">{group.tools.map(toolButton)}</div>
+              </div>
+            ))}
+          </details>
+
+          <details className="dock-group">
+            <summary>Control measures</summary>
+            <div className="tool-grid">{MEASURE_TOOLS.map(toolButton)}</div>
+          </details>
+
+          {tool === "draw" ? (
+            <Field label="Label">
+              <TextInput value={label} onChange={setLabel} placeholder="OBJ WEST / PL RED / Hill 214" />
+            </Field>
+          ) : null}
+
+          <details className="dock-group">
+            <summary>Sheet</summary>
+            <Field label="Scale (m)">
+              <NumberInput min={1} value={map.scaleBar.meters} onChange={(meters) => commit({ ...map, scaleBar: { ...map.scaleBar, meters } })} />
+            </Field>
+            <Field label="North rotation">
+              <NumberInput value={map.northArrow.rotationDeg} onChange={(rotationDeg) => commit({ ...map, northArrow: { rotationDeg } })} />
+            </Field>
+            <Field label="Tracing opacity">
+              <NumberInput
+                min={0}
+                max={1}
+                step={0.05}
+                value={map.underlay?.opacity ?? 1}
+                onChange={(opacity) => commit({ ...map, underlay: map.underlay ? { ...map.underlay, opacity } : undefined })}
+              />
+            </Field>
+          </details>
+        </aside>
+
+        <div className="studio-stage">
+          <MapCanvas
+            map={map}
+            imageUrl={imageUrl}
+            audience={audience}
+            greyscale={greyscale}
+            loadBearingIds={loadBearingIds}
+            selectedId={selectedId}
+            viewport={viewport}
+            tool={tool}
+            snap={snap}
+            showGrid={showGrid}
+            draftPoints={draft}
+            svgRef={svgRef}
+            ghost={ghost}
+            placing={placing}
+            onViewport={setViewport}
+            onSelect={setSelectedId}
+            onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
+            onFinishDraft={finishDraft}
+            onHoverPoint={(pt) => coordListenerRef.current?.(pt)}
+            onMove={(id, dx, dy) => {
+              const current = mapRef.current;
+              if (!current) return;
+              onChange(replaceMap(scenario, moveFeature(current, id, dx, dy)));
+            }}
+            onMoveVertex={(id, index, point: Point) => {
+              const current = mapRef.current;
+              if (!current) return;
+              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
+              if (!feature || !("geometry" in feature)) return;
+              onChange(replaceMap(scenario, patchFeature(current, id, { geometry: setVertex(feature.geometry, index, point.coordinates) })));
+            }}
+            onRotate={(id, rotationDeg) => {
+              const current = mapRef.current;
+              if (!current) return;
+              onChange(replaceMap(scenario, patchFeature(current, id, { rotationDeg })));
+            }}
+            onStrokeStart={() => {
+              strokeRef.current = mapRef.current ?? null;
+            }}
+            onStrokeEnd={() => {
+              if (strokeRef.current) {
+                setPast((items) => [...items.slice(-79), strokeRef.current!]);
+                setFuture([]);
+                strokeRef.current = null;
+              }
+            }}
+          />
+          <div className="studio-status">
+            <span className="studio-mode">{modeHint}</span>
+            {draft.length > 0 ? (
+              <span className="studio-draft-actions">
+                <button type="button" className="tool-btn is-active" onClick={finishDraft}>
+                  Finish ({draft.length})
+                </button>
+                <button type="button" className="tool-btn" onClick={() => setDraft([])}>
+                  Cancel
+                </button>
+              </span>
+            ) : null}
+            <span className="studio-status-right">
+              <CoordReadout register={registerCoord} />
+            </span>
+          </div>
+          {map.legend.autoGenerate ? (
+            <div className="legend studio-legend">
+              {usedLegend(map, audience).map((entry) => (
+                <div className="legend-item" key={entry.id}>
+                  <span style={{ width: 12, height: 12, background: entry.color, display: "inline-block", border: "1px solid #1b2118" }} />
+                  {entry.label}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <Inspector feature={selected} onPatch={(patch) => patchSelected(patch)} onDelete={deleteSelected} />
+      </div>
     </div>
   );
 }

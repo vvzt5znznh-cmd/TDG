@@ -76,8 +76,11 @@ export type LayerRole =
 export type TerrainFeatureKind =
   | "contour"
   | "spot_elevation"
+  | "mountain"
   | "woods"
   | "water"
+  | "river"
+  | "stream"
   | "wetland"
   | "built_up"
   | "road"
@@ -96,7 +99,35 @@ export type ControlMeasureKind =
   | "lz"
   | "checkpoint"
   | "obstacle"
+  | MissionTaskKind
   | "custom";
+
+/** FM 3-90-1 tactical mission tasks drawn as overlay graphics. */
+export type MissionTaskKind =
+  | "seize"
+  | "clear"
+  | "fix"
+  | "block"
+  | "breach"
+  | "bypass"
+  | "canalize"
+  | "penetrate"
+  | "turn"
+  | "disrupt"
+  | "destroy"
+  | "neutralize"
+  | "contain"
+  | "isolate"
+  | "occupy"
+  | "retain"
+  | "secure"
+  | "ambush"
+  | "attack_by_fire"
+  | "support_by_fire"
+  | "suppress"
+  | "screen"
+  | "guard"
+  | "cover";
 
 export type Deliverable =
   | "frag_order"

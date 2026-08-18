@@ -43,6 +43,7 @@ export function MapCanvas({
   onRotate,
   onStrokeStart,
   onStrokeEnd,
+  onHoverPoint,
 }: {
   map: MapDocument;
   imageUrl?: string;
@@ -68,12 +69,14 @@ export function MapCanvas({
   onRotate: (id: string, rotationDeg: number) => void;
   onStrokeStart: () => void;
   onStrokeEnd: () => void;
+  onHoverPoint?: (point: [number, number] | null) => void;
 }) {
   const localSvgRef = useRef<SVGSVGElement>(null);
   const svgRef = svgRefProp ?? localSvgRef;
   const dragRef = useRef<Drag | null>(null);
   const suppressClickRef = useRef(false);
   const [spacePan, setSpacePan] = useState(false);
+  const [rubber, setRubber] = useState<[number, number] | null>(null);
   const selected = selectedId ? allGroundAndOverlayFeatures(map).find((feature) => feature.id === selectedId) : undefined;
   const panning = tool === "pan" || spacePan;
 
@@ -172,6 +175,14 @@ export function MapCanvas({
   }
 
   function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    const hover = mapPoint(event);
+    onHoverPoint?.(hover);
+    // Rubber band from the last clicked point while drawing.
+    if (tool === "draw" && draftPoints && draftPoints.length > 0 && hover) {
+      setRubber(maybeSnap(hover));
+    } else if (rubber) {
+      setRubber(null);
+    }
     const drag = dragRef.current;
     if (!drag) return;
     if (drag.kind === "pan") {
@@ -258,6 +269,10 @@ export function MapCanvas({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onPointerLeave={() => {
+          onHoverPoint?.(null);
+          setRubber(null);
+        }}
         onClick={handleClick}
         onDoubleClick={() => {
           if (draftPoints && draftPoints.length > 0) onFinishDraft?.();
@@ -274,6 +289,18 @@ export function MapCanvas({
           draftPoints={draftPoints}
           showGrid={showGrid}
         />
+        {tool === "draw" && rubber && draftPoints && draftPoints.length > 0 ? (
+          <line
+            x1={draftPoints[draftPoints.length - 1]![0]}
+            y1={draftPoints[draftPoints.length - 1]![1]}
+            x2={rubber[0]}
+            y2={rubber[1]}
+            stroke="#9a2f2a"
+            strokeWidth={2}
+            strokeDasharray="6 6"
+            pointerEvents="none"
+          />
+        ) : null}
         {ghost ? (
           <g className="unit-ghost" pointerEvents="none">
             <SymbolMark symbol={ghost} />
