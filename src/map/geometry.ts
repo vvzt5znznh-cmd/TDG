@@ -64,6 +64,18 @@ export function translateFeature(feature: MapFeature, dx: number, dy: number): M
   return { ...feature, geometry: translateGeometry(feature.geometry, dx, dy) } as MapFeature;
 }
 
+/** Scale a geometry's points about a fixed center (uniform warp of control points). */
+export function scaleGeometry(geometry: GeoGeometry, factor: number, center: [number, number]): GeoGeometry {
+  const scale = (pos: Position): Position => [center[0] + (pos[0] - center[0]) * factor, center[1] + (pos[1] - center[1]) * factor];
+  if (geometry.type === "Point") return { type: "Point", coordinates: scale(geometry.coordinates) };
+  if (geometry.type === "LineString") return { type: "LineString", coordinates: geometry.coordinates.map(scale) };
+  return { type: "Polygon", coordinates: geometry.coordinates.map((ring) => ring.map(scale)) };
+}
+
+export function geometryCentroid(geometry: GeoGeometry): [number, number] {
+  return centroid(editableVertices(geometry));
+}
+
 export function snapPoint(point: [number, number], step: number): [number, number] {
   if (step <= 0) return point;
   return [Math.round(point[0] / step) * step, Math.round(point[1] / step) * step];

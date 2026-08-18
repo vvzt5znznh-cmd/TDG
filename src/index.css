@@ -976,6 +976,77 @@ svg.map-canvas {
   pointer-events: none;
 }
 
+.graphic-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.graphic-palette > input {
+  width: 100%;
+}
+
+.graphic-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.graphic-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--paper-3);
+  background: #fff;
+  padding: 6px 4px 5px;
+  font-size: 11px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.graphic-card:active {
+  cursor: grabbing;
+}
+
+.graphic-card:hover {
+  border-color: var(--olive);
+}
+
+.graphic-card.is-active {
+  border-color: var(--olive);
+  box-shadow: 0 0 0 1px var(--olive);
+}
+
+.graphic-card-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.graphic-card-art img {
+  max-height: 44px;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.graphic-card-loading {
+  color: var(--ink-soft);
+}
+
+.graphic-card-name {
+  line-height: 1.15;
+  text-align: center;
+}
+
+.scale-handle {
+  cursor: nwse-resize;
+}
+
 .lede {
   color: var(--ink-soft);
   max-width: 42em;

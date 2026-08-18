@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { readFileAsDataUrl } from "../../io/files";
-import { setVertex } from "../../map/geometry";
+import { scaleGeometry, setVertex } from "../../map/geometry";
 import {
   addBaseTerrain,
   allGroundAndOverlayFeatures,
@@ -11,7 +11,7 @@ import {
   moveFeature,
   patchFeature,
 } from "../../map/mapBase";
-import { MISSION_TASKS, type MissionTaskDef } from "../../map/missionTasks";
+import { GRAPHIC_DEFS, defaultPointsAt, type GraphicDef } from "../../map/milstd";
 import { withSyncedSidc } from "../../map/sidc";
 import { createSymbolFromStamp, layerRoleForAffiliation, type UnitStamp } from "../../map/stamp";
 import {
@@ -25,8 +25,10 @@ import {
 import { newId } from "../../schema/ids";
 import type {
   Audience,
+  ControlMeasure,
   ControlMeasureKind,
   Echelon,
+  GeoGeometry,
   MapDocument,
   MapFeature,
   MilSymbol,
@@ -37,6 +39,7 @@ import type {
 } from "../../schema/types";
 import { loadBearingFeatureIds } from "../../validator/validate";
 import { Field, NumberInput, Select, TextInput } from "../fields";
+import { GraphicPalette } from "./GraphicPalette";
 import { Inspector } from "./Inspector";
 import { MapCanvas, type MapTool } from "./MapCanvas";
 import { geometryFromDraft, usedLegend } from "./MapView";
@@ -68,17 +71,7 @@ const GROUND_TOOLS: DrawToolDef[] = [
   { id: "bridge", label: "Bridge", draw: "line", terrain: "bridge", hint: "Short line across the water." },
 ];
 
-const MEASURE_TOOLS: DrawToolDef[] = [
-  { id: "objective", label: "OBJ", draw: "point", control: "objective", defaultLabel: "OBJ" },
-  { id: "phase_line", label: "PL", draw: "line", control: "phase_line", defaultLabel: "PL" },
-  { id: "axis", label: "Axis", draw: "line", control: "axis_of_advance", defaultLabel: "AXIS" },
-  { id: "boundary", label: "Boundary", draw: "line", control: "boundary", defaultLabel: "" },
-  { id: "trp", label: "TRP", draw: "point", control: "trp", defaultLabel: "TRP" },
-  { id: "checkpoint", label: "CKP", draw: "point", control: "checkpoint", defaultLabel: "CKP" },
-  { id: "lz", label: "LZ", draw: "point", control: "lz", defaultLabel: "LZ" },
-];
-
-function taskTool(def: MissionTaskDef): DrawToolDef {
+function graphicTool(def: GraphicDef): DrawToolDef {
   return {
     id: def.kind,
     label: def.label,
@@ -89,13 +82,11 @@ function taskTool(def: MissionTaskDef): DrawToolDef {
   };
 }
 
-const TASK_GROUPS: { id: string; label: string; tools: DrawToolDef[] }[] = [
-  { id: "actions", label: "Actions", tools: MISSION_TASKS.filter((t) => t.group === "actions").map(taskTool) },
-  { id: "effects", label: "Effects on the enemy", tools: MISSION_TASKS.filter((t) => t.group === "effects").map(taskTool) },
-  { id: "security", label: "Security and fires", tools: MISSION_TASKS.filter((t) => t.group === "security").map(taskTool) },
-];
+const GRAPHIC_TOOLS: DrawToolDef[] = GRAPHIC_DEFS.map(graphicTool);
 
-const ALL_TOOLS: DrawToolDef[] = [...GROUND_TOOLS, ...MEASURE_TOOLS, ...TASK_GROUPS.flatMap((group) => group.tools)];
+const ALL_TOOLS: DrawToolDef[] = [...GROUND_TOOLS, ...GRAPHIC_TOOLS];
+
+type PlacePayload = { type: "unit" } | { type: "graphic"; kind: ControlMeasureKind };
 
 function replaceMap(scenario: Scenario, map: MapDocument): Scenario {
   return { ...scenario, maps: scenario.maps.map((item) => (item.id === map.id ? map : item)) };
@@ -140,7 +131,7 @@ export function MapEditor({
     affiliation: "friendly",
   });
   const [placing, setPlacing] = useState(false);
-  const [ghost, setGhost] = useState<MilSymbol | null>(null);
+  const [ghost, setGhost] = useState<MapFeature | null>(null);
   const [label, setLabel] = useState("");
   const [audience, setAudience] = useState<Audience | "all">("all");
   const [greyscale, setGreyscale] = useState(false);
@@ -289,8 +280,40 @@ export function MapEditor({
     return clientToMapFromSvg(svg, client, viewportRef.current);
   }
 
-  function ghostAt(point: [number, number]): MilSymbol {
-    return { ...createSymbolFromStamp(unitDraftRef.current, point), id: "unit-ghost" };
+  function graphicGeometryAt(kind: ControlMeasureKind, point: [number, number]): GeoGeometry {
+    const points = defaultPointsAt(kind, point);
+    if (points.length === 1) return { type: "Point", coordinates: points[0]! };
+    return { type: "LineString", coordinates: points };
+  }
+
+  function ghostAt(payload: PlacePayload, point: [number, number]): MapFeature {
+    if (payload.type === "unit") {
+      return { ...createSymbolFromStamp(unitDraftRef.current, point), id: "ghost" };
+    }
+    const ghostFeature: ControlMeasure = {
+      featureType: "control_measure",
+      id: "ghost",
+      kind: payload.kind,
+      geometry: graphicGeometryAt(payload.kind, point),
+      label: "",
+    };
+    return ghostFeature;
+  }
+
+  function placeGraphic(kind: ControlMeasureKind, point: [number, number]) {
+    const current = mapRef.current;
+    if (!current) return;
+    const feature: ControlMeasure = {
+      featureType: "control_measure",
+      id: newId(),
+      kind,
+      geometry: graphicGeometryAt(kind, point),
+      label: "",
+    };
+    commit(addOverlayFeature(ensureLayer(current, "control_measures"), "control_measures", feature));
+    setSelectedId(feature.id);
+    setTool("select");
+    setDrawId(null);
   }
 
   function cancelPlace() {
@@ -300,16 +323,17 @@ export function MapEditor({
     setGhost(null);
   }
 
-  function onPlacePointerDown(event: ReactPointerEvent) {
+  /**
+   * Drag from a palette card places the payload where the pointer releases.
+   * A plain click (no drag) arms the click-to-draw tool instead, when given.
+   */
+  function beginPlace(payload: PlacePayload, event: ReactPointerEvent, armOnClick?: DrawToolDef) {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    setTool("select");
-    setDrawId(null);
-    setSelectedId(null);
-    const session = { cancelled: false };
+    const start: [number, number] = [event.clientX, event.clientY];
+    const session = { cancelled: false, dragging: false };
     placeSessionRef.current = session;
-    setPlacing(true);
 
     function updateGhost(client: { clientX: number; clientY: number }) {
       if (!clientOnSheet(client)) {
@@ -321,34 +345,48 @@ export function MapEditor({
         setGhost(null);
         return;
       }
-      setGhost(ghostAt(snapPoint(point)));
+      setGhost(ghostAt(payload, snapPoint(point)));
     }
-
-    updateGhost(event);
 
     function onMove(ev: PointerEvent) {
       if (session.cancelled) return;
+      if (!session.dragging) {
+        if (Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) < 6) return;
+        session.dragging = true;
+        setTool("select");
+        setDrawId(null);
+        setSelectedId(null);
+        setPlacing(true);
+      }
       updateGhost(ev);
     }
 
-    function onUp(ev: PointerEvent) {
+    function cleanup() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
+    }
+
+    function onUp(ev: PointerEvent) {
+      cleanup();
       if (session.cancelled || placeSessionRef.current !== session) return;
       placeSessionRef.current = null;
       setPlacing(false);
       setGhost(null);
+      if (!session.dragging) {
+        if (armOnClick) chooseDraw(armOnClick);
+        return;
+      }
       if (!clientOnSheet(ev)) return;
       const point = mapPointFromClient(ev);
       if (!point) return;
-      placeSymbol(snapPoint(point), unitDraftRef.current);
+      const snapped = snapPoint(point);
+      if (payload.type === "unit") placeSymbol(snapped, unitDraftRef.current);
+      else placeGraphic(payload.kind, snapped);
     }
 
     function onCancel() {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onCancel);
+      cleanup();
       if (placeSessionRef.current === session) cancelPlace();
     }
 
@@ -526,23 +564,22 @@ export function MapEditor({
               placing={placing}
               onStamp={setUnitDraft}
               onQuery={setSymbolQuery}
-              onPlacePointerDown={onPlacePointerDown}
+              onPlacePointerDown={(e) => beginPlace({ type: "unit" }, e)}
             />
           </details>
 
           <details className="dock-group">
-            <summary>Mission tasks</summary>
-            {TASK_GROUPS.map((group) => (
-              <div key={group.id} className="dock-subgroup">
-                <div className="section-kicker">{group.label}</div>
-                <div className="tool-grid">{group.tools.map(toolButton)}</div>
-              </div>
-            ))}
-          </details>
-
-          <details className="dock-group">
-            <summary>Control measures</summary>
-            <div className="tool-grid">{MEASURE_TOOLS.map(toolButton)}</div>
+            <summary>Tactical graphics</summary>
+            <p className="hint unit-tray-lead">
+              MIL-STD-2525D / APP-6 graphics, drawn by the US Army renderer. Drag one onto the
+              sheet, or click it and place its points yourself.
+            </p>
+            <GraphicPalette
+              activeKind={drawTool?.control ?? null}
+              onCardPointerDown={(def, e) =>
+                beginPlace({ type: "graphic", kind: def.kind }, e, GRAPHIC_TOOLS.find((t) => t.id === def.kind))
+              }
+            />
           </details>
 
           {tool === "draw" ? (
@@ -608,6 +645,13 @@ export function MapEditor({
               const current = mapRef.current;
               if (!current) return;
               onChange(replaceMap(scenario, patchFeature(current, id, { rotationDeg })));
+            }}
+            onScale={(id, factor, center) => {
+              const current = mapRef.current;
+              if (!current) return;
+              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
+              if (!feature || !("geometry" in feature)) return;
+              onChange(replaceMap(scenario, patchFeature(current, id, { geometry: scaleGeometry(feature.geometry, factor, center) })));
             }}
             onStrokeStart={() => {
               strokeRef.current = mapRef.current ?? null;

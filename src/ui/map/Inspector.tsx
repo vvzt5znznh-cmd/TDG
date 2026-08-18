@@ -1,4 +1,5 @@
 import type { Affiliation, Confidence, ControlMeasure, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
+import { graphicDef } from "../../map/milstd";
 import { ECHELON_OPTIONS, echelonFromSidc, functionIdFromSidc, UNIT_CATALOG } from "../../map/sidc";
 import { CommitTextInput, Field, NumberInput, Select } from "../fields";
 
@@ -98,14 +99,20 @@ export function Inspector({
   }
 
   const label = "label" in feature ? feature.label ?? "" : "";
-  const kind = "kind" in feature ? feature.kind.replaceAll("_", " ") : feature.featureType;
+  const def = feature.featureType === "control_measure" ? graphicDef(feature.kind) : undefined;
+  const kind = def?.label ?? ("kind" in feature ? feature.kind.replaceAll("_", " ") : feature.featureType);
   return (
     <aside className="map-inspector">
       <div className="section-kicker">{kind}</div>
-      <Field label="Label">
+      {def ? <p className="hint">{def.hint}</p> : null}
+      <Field label="Label" hint={def ? "Drawn by the symbol standard where doctrine puts it." : undefined}>
         <CommitTextInput value={label} onCommit={(value) => onPatch({ label: value })} />
       </Field>
-      <p className="hint">Drag to move. Drag the white corners to reshape.</p>
+      <p className="hint">
+        {feature.featureType === "control_measure"
+          ? "Drag the body to move. White dots are the graphic's control points — the symbol redraws itself around them. The square grip scales the whole graphic."
+          : "Drag to move. Drag the white corners to reshape."}
+      </p>
       <button type="button" className="btn btn-danger" onClick={onDelete}>
         Delete
       </button>

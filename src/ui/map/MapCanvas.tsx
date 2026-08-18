@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { editableVertices, pointerDistance, rotateHandlePoint } from "../../map/geometry";
+import { editableVertices, geometryCentroid, pointerDistance, rotateHandlePoint } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
 import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
-import type { Audience, MapDocument, MapFeature, MilSymbol, Point } from "../../schema/types";
-import { MapScene } from "./MapView";
-import { SymbolMark } from "./MilSymbolMark";
+import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
+import { FeatureShape, MapScene } from "./MapView";
 
 export type MapTool = "select" | "pan" | "draw";
 
@@ -14,7 +13,8 @@ type Drag =
   | { kind: "press"; id: string; start: [number, number]; last: [number, number] }
   | { kind: "move"; id: string; last: [number, number] }
   | { kind: "vertex"; index: number }
-  | { kind: "rotate" };
+  | { kind: "rotate" }
+  | { kind: "scale"; center: [number, number]; last: [number, number] };
 
 const DRAG_THRESHOLD_PX = 5;
 
@@ -41,6 +41,7 @@ export function MapCanvas({
   onMove,
   onMoveVertex,
   onRotate,
+  onScale,
   onStrokeStart,
   onStrokeEnd,
   onHoverPoint,
@@ -58,7 +59,7 @@ export function MapCanvas({
   draftPoints?: [number, number][];
   cursor?: string;
   svgRef?: RefObject<SVGSVGElement | null>;
-  ghost?: MilSymbol | null;
+  ghost?: MapFeature | null;
   placing?: boolean;
   onViewport: (viewport: Viewport) => void;
   onSelect: (id: string | null) => void;
@@ -67,6 +68,7 @@ export function MapCanvas({
   onMove: (id: string, dx: number, dy: number) => void;
   onMoveVertex: (id: string, index: number, point: Point) => void;
   onRotate: (id: string, rotationDeg: number) => void;
+  onScale?: (id: string, factor: number, center: [number, number]) => void;
   onStrokeStart: () => void;
   onStrokeEnd: () => void;
   onHoverPoint?: (point: [number, number] | null) => void;
@@ -156,6 +158,14 @@ export function MapCanvas({
       }
     }
     if (selected && selected.featureType !== "symbol") {
+      const scaleAt = scaleHandlePoint(selected);
+      if (scaleAt && onScale && pointerDistance(point, scaleAt) < slop) {
+        onStrokeStart();
+        dragRef.current = { kind: "scale", center: geometryCentroid(selected.geometry), last: point };
+        suppressClickRef.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
       const vertex = pickVertex(selected, point, slop);
       if (vertex != null) {
         onStrokeStart();
@@ -215,6 +225,15 @@ export function MapCanvas({
       onMoveVertex(selectedId, drag.index, { type: "Point", coordinates: maybeSnap(point) });
       return;
     }
+    if (drag.kind === "scale") {
+      const before = pointerDistance(drag.last, drag.center);
+      const after = pointerDistance(point, drag.center);
+      if (before > 4 && after > 4) {
+        onScale?.(selectedId, after / before, drag.center);
+        drag.last = point;
+      }
+      return;
+    }
     if (drag.kind === "rotate" && selected?.featureType === "symbol") {
       const [sx, sy] = selected.position.coordinates;
       const deg = (Math.atan2(point[0] - sx, sy - point[1]) * 180) / Math.PI;
@@ -249,6 +268,7 @@ export function MapCanvas({
 
   const handleR = mapPx(6);
   const handles = selected && selected.featureType !== "symbol" ? editableVertices(selected.geometry) : [];
+  const scaleHandle = selected && selected.featureType !== "symbol" && onScale ? scaleHandlePoint(selected) : null;
   const symbolHandle =
     selected?.featureType === "symbol"
       ? rotateHandlePoint(selected.position.coordinates[0], selected.position.coordinates[1], selected.rotationDeg ?? 0, mapPx(44))
@@ -303,7 +323,7 @@ export function MapCanvas({
         ) : null}
         {ghost ? (
           <g className="unit-ghost" pointerEvents="none">
-            <SymbolMark symbol={ghost} />
+            <FeatureShape feature={ghost} />
           </g>
         ) : null}
         {tool === "select" &&
@@ -311,6 +331,18 @@ export function MapCanvas({
           handles.map(([hx, hy], index) => (
             <circle key={index} className="vertex-handle" cx={hx} cy={hy} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
           ))}
+        {tool === "select" && !placing && scaleHandle ? (
+          <rect
+            className="scale-handle"
+            x={scaleHandle[0] - handleR}
+            y={scaleHandle[1] - handleR}
+            width={handleR * 2}
+            height={handleR * 2}
+            fill="#fff"
+            stroke="#3e4c34"
+            strokeWidth={handleR / 4}
+          />
+        ) : null}
         {tool === "select" && !placing && symbolHandle && selected?.featureType === "symbol" ? (
           <g>
             <line
@@ -327,6 +359,16 @@ export function MapCanvas({
       </svg>
     </div>
   );
+}
+
+/** Uniform-scale grip: sits off the bottom-right of the feature's control points. */
+function scaleHandlePoint(feature: MapFeature): [number, number] | null {
+  if (feature.featureType === "symbol") return null;
+  const pts = editableVertices(feature.geometry);
+  if (pts.length < 2) return null;
+  const maxX = Math.max(...pts.map((p) => p[0]));
+  const maxY = Math.max(...pts.map((p) => p[1]));
+  return [maxX + 26, maxY + 26];
 }
 
 function visibleFeatures(map: MapDocument, audience: Audience | "all"): MapFeature[] {

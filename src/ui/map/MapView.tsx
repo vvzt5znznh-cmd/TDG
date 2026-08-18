@@ -1,11 +1,11 @@
 import type { ReactElement } from "react";
 import type { Audience, ControlMeasure, GeoGeometry, MapDocument, MapFeature, TerrainFeature, TerrainFeatureKind } from "../../schema/types";
 import { centroid, editableVertices, pointsOf, toSvgPoints } from "../../map/geometry";
-import { arrowHeadPoints, controlMeasureStyle, labelAnchor, tickAt } from "../../map/controlGraphics";
-import { isMissionTask, missionTaskGlyph } from "../../map/missionTasks";
+import { renderControlMeasure } from "../../map/milstd";
 import { baseFeatures, isRasterUnderlay, syntheticBaseLayer } from "../../map/mapBase";
 import { MAP_HEIGHT, MAP_WIDTH } from "../../map/viewport";
 import { SymbolMark } from "./MilSymbolMark";
+import { useMilStdReady } from "./useMilStd";
 
 export const AFFILIATION_COLOR = {
   friendly: "#1f4f7a",
@@ -36,41 +36,12 @@ function terrainPaint(kind: TerrainFeatureKind, loadBearing?: boolean, highlight
   return highlight ? { ...paint, width: paint.width + 2 } : paint;
 }
 
-/** FM 3-90-1 tactical mission task graphic, rendered from shared path math. */
-function MissionTaskShape({ feature, color }: { feature: ControlMeasure; color: string }) {
-  if (!isMissionTask(feature.kind)) return null;
-  const glyph = missionTaskGlyph(feature.kind, pointsOf(feature.geometry));
-  return (
-    <g>
-      {glyph.strokes.map((stroke, index) => (
-        <path
-          key={`s${index}`}
-          d={stroke.d}
-          fill="none"
-          stroke={color}
-          strokeWidth={stroke.width ?? 3}
-          strokeDasharray={stroke.dash}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      ))}
-      {glyph.fills.map((d, index) => (
-        <path key={`f${index}`} d={d} fill={color} stroke="none" />
-      ))}
-      {glyph.texts.map((text, index) => (
-        <text key={`t${index}`} x={text.x} y={text.y} textAnchor="middle" fontSize={text.size ?? 16} fontFamily="serif" fontWeight={700} fill={color}>
-          {text.text}
-        </text>
-      ))}
-      {feature.label ? (
-        <text x={glyph.labelAt[0]} y={glyph.labelAt[1]} textAnchor="middle" fontSize={14} fontFamily="serif" fontWeight={700} fill={color}>
-          {feature.label}
-        </text>
-      ) : null}
-    </g>
-  );
-}
-
+/**
+ * Control measures and tactical mission tasks, drawn by the US Army
+ * MIL-STD-2525D renderer from the feature's control points. Selection and
+ * load-bearing state are shown as an outline so the doctrinal drawing itself
+ * is never recolored or distorted.
+ */
 export function ControlMeasureShape({
   feature,
   highlight,
@@ -80,101 +51,37 @@ export function ControlMeasureShape({
   highlight?: boolean;
   loadBearing?: boolean;
 }) {
+  const ready = useMilStdReady();
   const pts = pointsOf(feature.geometry);
-  const style = controlMeasureStyle(feature.kind);
-  const color = loadBearing || highlight ? "#9a2f2a" : style.color;
-  const width = highlight ? style.width + 1.5 : style.width;
-  if (isMissionTask(feature.kind)) {
-    return <MissionTaskShape feature={feature} color={color} />;
+  const rendered = ready ? renderControlMeasure(feature) : null;
+  if (!rendered) {
+    // Renderer still loading (or unmapped kind): sketch the control points.
+    if (pts.length === 0) return null;
+    if (pts.length === 1) {
+      const [x, y] = pts[0]!;
+      return <circle cx={x} cy={y} r={7} fill="#fff" stroke="#5c5346" strokeWidth={2} strokeDasharray="4 4" />;
+    }
+    return <polyline points={toSvgPoints(pts)} fill="none" stroke="#5c5346" strokeWidth={2} strokeDasharray="4 4" />;
   }
-  const [lx, ly] = labelAnchor(feature);
-  const label = (
-    <text x={lx + 10} y={ly - 8} fontSize={14} fontFamily="serif" fill={color} fontWeight={700}>
-      {feature.label}
-    </text>
-  );
-
-  if (feature.kind === "objective" && feature.geometry.type === "Point" && pts[0]) {
-    const [x, y] = pts[0];
-    return (
-      <g>
-        <circle cx={x} cy={y} r={18} fill="none" stroke={color} strokeWidth={width} />
-        <circle cx={x} cy={y} r={4} fill={color} />
-        <text x={x} y={y - 26} textAnchor="middle" fontSize={14} fontFamily="serif" fontWeight={700} fill={color}>
-          {feature.label}
-        </text>
-      </g>
-    );
-  }
-
-  if ((feature.kind === "trp" || feature.kind === "lz" || feature.kind === "checkpoint") && pts[0]) {
-    const [x, y] = pts[0];
-    return (
-      <g>
-        <rect x={x - 11} y={y - 11} width={22} height={22} fill="#fff" stroke={color} strokeWidth={width} />
-        <text x={x} y={y - 18} textAnchor="middle" fontSize={13} fontFamily="serif" fontWeight={700} fill={color}>
-          {feature.label}
-        </text>
-      </g>
-    );
-  }
-
-  if (feature.geometry.type === "LineString" && pts.length >= 2) {
-    const last = pts[pts.length - 1]!;
-    const prev = pts[pts.length - 2]!;
-    const first = pts[0]!;
-    const second = pts[1]!;
-    const startTick = tickAt(first, second);
-    const endTick = tickAt(last, prev);
-    return (
-      <g>
-        <polyline
-          points={toSvgPoints(pts)}
+  const outline = highlight || loadBearing;
+  return (
+    <g className="milstd-graphic">
+      <g transform={`translate(${rendered.x} ${rendered.y})`} dangerouslySetInnerHTML={{ __html: rendered.innerSvg }} />
+      {outline ? (
+        <rect
+          x={rendered.x - 4}
+          y={rendered.y - 4}
+          width={rendered.width + 8}
+          height={rendered.height + 8}
           fill="none"
-          stroke={color}
-          strokeWidth={width}
-          strokeDasharray={style.dash}
-          strokeLinejoin="round"
-          strokeLinecap="round"
+          stroke="#9a2f2a"
+          strokeWidth={2}
+          strokeDasharray={highlight ? undefined : "6 5"}
+          opacity={0.9}
         />
-        {feature.kind === "phase_line" ? (
-          <>
-            <line x1={startTick[0][0]} y1={startTick[0][1]} x2={startTick[1][0]} y2={startTick[1][1]} stroke={color} strokeWidth={width} />
-            <line x1={endTick[0][0]} y1={endTick[0][1]} x2={endTick[1][0]} y2={endTick[1][1]} stroke={color} strokeWidth={width} />
-          </>
-        ) : null}
-        {feature.kind === "axis_of_advance" ? <polygon points={arrowHeadPoints(prev, last)} fill={color} /> : null}
-        {label}
-      </g>
-    );
-  }
-
-  if (feature.geometry.type === "Polygon" && pts.length >= 3) {
-    return (
-      <g>
-        <polygon
-          points={toSvgPoints(pts)}
-          fill={color}
-          fillOpacity={0.08}
-          stroke={color}
-          strokeWidth={width}
-          strokeDasharray={style.dash}
-        />
-        {label}
-      </g>
-    );
-  }
-
-  if (pts[0]) {
-    const [x, y] = pts[0];
-    return (
-      <g>
-        <circle cx={x} cy={y} r={7} fill="#fff" stroke={color} strokeWidth={width} />
-        {label}
-      </g>
-    );
-  }
-  return null;
+      ) : null}
+    </g>
+  );
 }
 
 /** Shrink a ring toward its centroid — cheap nested contour lines for hills. */

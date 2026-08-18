@@ -12,7 +12,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@armyc2.c5isr.renderer/mil-sym-ts-web": "^2.10.4",
     "idb": "^8.0.3",
+    "leaflet": "^1.9.4",
     "milsymbol": "^3.0.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -21,11 +23,13 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "@vitest/coverage-v8": "^4.1.10",
+    "canvas": "^3.2.3",
     "jsdom": "^29.1.1",
     "oxlint": "^1.75.0",
     "typescript": "~6.0.2",
