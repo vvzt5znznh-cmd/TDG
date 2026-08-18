@@ -437,6 +437,10 @@ textarea {
   cursor: grab;
 }
 
+.map-handles {
+  pointer-events: none;
+}
+
 .map-toolbar,
 .layer-list {
   display: flex;
@@ -527,6 +531,11 @@ textarea {
     aspect-ratio: auto;
     height: auto;
     overflow: visible;
+  }
+
+  .map-handles {
+    display: none !important;
+  }
   }
 
   .map-stage svg.map-overlay {
@@ -1072,6 +1081,11 @@ svg.map-canvas {
 
 .scale-handle {
   cursor: nwse-resize;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: #9a2f2a;
 }
 
 .modal-overlay {

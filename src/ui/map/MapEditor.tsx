@@ -14,6 +14,7 @@ import {
 import {
   applyPlaceAdjust,
   defaultPointsAt,
+  insertGraphicPoint,
   placeHint,
   placeRecipe,
   placeSteps,
@@ -707,6 +708,8 @@ export function MapEditor({
               if (feature.featureType === "control_measure") {
                 const spec = pointSpec(feature.kind);
                 if (spec && editableVertices(feature.geometry).length >= spec.max) return;
+                commit(patchFeature(current, id, { geometry: insertGraphicPoint(feature.kind, feature.geometry, afterIndex, point) }));
+                return;
               }
               commit(patchFeature(current, id, { geometry: insertVertex(feature.geometry, afterIndex, point) }));
             }}
@@ -799,6 +802,8 @@ export function MapEditor({
             if (selected.featureType === "control_measure") {
               const spec = pointSpec(selected.kind);
               if (spec && editableVertices(selected.geometry).length >= spec.max) return;
+              commit(patchFeature(map, selected.id, { geometry: insertGraphicPoint(selected.kind, selected.geometry) }));
+              return;
             }
             commit(patchFeature(map, selected.id, { geometry: addPointOnLongestEdge(selected.geometry) }));
           }}

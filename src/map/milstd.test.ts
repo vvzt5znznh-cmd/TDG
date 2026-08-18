@@ -6,12 +6,16 @@ import {
   defaultPointsAt,
   ensureMilStd,
   graphicThumbnail,
+  insertGraphicPoint,
   isMilStdReady,
   placeRecipe,
   placeSteps,
   pointSpec,
   renderControlMeasure,
+  securityLetterSpacing,
+  setSecurityLetterSpacing,
   sidcFor,
+  vertexRoles,
 } from "./milstd";
 
 beforeAll(async () => {
@@ -105,12 +109,13 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     expect(sidcFor("seize", "unknown")).toBe("10012500003423000000");
   });
 
-  it("drops occupy as two points and screen as a front plus a protected-force point", () => {
+  it("drops occupy as two points and screen as a four-point front with letter grips", () => {
     const occupy = defaultPointsAt("occupy", [800, 600]);
     expect(occupy).toHaveLength(2);
     const screen = defaultPointsAt("screen", [800, 600]);
-    expect(screen).toHaveLength(3);
-    expect(screen[0]![1]).toBe(screen[1]![1]);
+    expect(screen).toHaveLength(4);
+    expect(screen[0]![1]).toBe(screen[3]![1]);
+    expect(screen[1]![1]).toBeGreaterThan(screen[0]![1]);
     expect(screen[2]![1]).toBeGreaterThan(screen[0]![1]);
   });
 
@@ -128,5 +133,32 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     expect(aimed.type).toBe("LineString");
     if (aimed.type !== "LineString") throw new Error("line");
     expect(aimed.coordinates[2]).toEqual([500, 900]);
+  });
+
+  it("maps axis of advance to Main Attack 151403, with a supporting variant", () => {
+    expect(sidcFor("axis_of_advance")).toBe("10032500001514030000");
+    expect(sidcFor("axis_supporting")).toBe("10032500001514040000");
+    const axis = defaultPointsAt("axis_of_advance", [800, 600]);
+    expect(axis).toHaveLength(3);
+    expect(vertexRoles("axis_of_advance", 3)).toEqual(["path", "path", "width"]);
+  });
+
+  it("spaces screen letters by sliding the inner grips along the front", () => {
+    const geometry = { type: "LineString" as const, coordinates: defaultPointsAt("screen", [800, 600]) };
+    const tight = setSecurityLetterSpacing(geometry, 0.2);
+    const wide = setSecurityLetterSpacing(geometry, 0.7);
+    expect(securityLetterSpacing(tight)).toBeCloseTo(0.2, 1);
+    expect(securityLetterSpacing(wide)).toBeCloseTo(0.7, 1);
+    expect(vertexRoles("screen", 4)).toEqual(["path", "letter", "letter", "path"]);
+  });
+
+  it("inserts axis points on the shaft, not after the width handle", () => {
+    const geometry = { type: "LineString" as const, coordinates: defaultPointsAt("axis_of_advance", [800, 600]) };
+    const next = insertGraphicPoint("axis_of_advance", geometry);
+    expect(next.type).toBe("LineString");
+    if (next.type !== "LineString") throw new Error("line");
+    expect(next.coordinates).toHaveLength(4);
+    expect(vertexRoles("axis_of_advance", 4)).toEqual(["path", "path", "path", "width"]);
+    expect(next.coordinates[3]).toEqual(geometry.coordinates[2]);
   });
 });

@@ -7,10 +7,12 @@ const GROUP_LABELS: Record<GraphicGroup, string> = {
   "tasks-action": "Actions",
   "tasks-effect": "Effects on the enemy",
   "tasks-security": "Security and fires",
-  measures: "Control measures",
+  maneuver: "Maneuver",
+  areas: "Areas",
+  fires: "Fires",
 };
 
-const GROUP_ORDER: GraphicGroup[] = ["tasks-action", "tasks-effect", "tasks-security", "measures"];
+const GROUP_ORDER: GraphicGroup[] = ["tasks-action", "tasks-effect", "tasks-security", "maneuver", "areas", "fires"];
 
 function GraphicCard({
   def,

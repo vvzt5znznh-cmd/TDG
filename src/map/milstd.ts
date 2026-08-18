@@ -1,5 +1,5 @@
 import type { Affiliation, ControlMeasure, ControlMeasureKind, GeoGeometry } from "../schema/types";
-import { centroid, editableVertices, scaleGeometry, setVertex } from "./geometry";
+import { addPointOnLongestEdge, centroid, editableVertices, insertVertex, longestEdgeIndex, scaleGeometry, setVertex } from "./geometry";
 import { MAP_HEIGHT } from "./viewport";
 
 /**
@@ -48,7 +48,7 @@ export function onMilStdReady(listener: () => void): () => void {
   return () => readyListeners.delete(listener);
 }
 
-export type GraphicGroup = "tasks-action" | "tasks-effect" | "tasks-security" | "measures";
+export type GraphicGroup = "tasks-action" | "tasks-effect" | "tasks-security" | "maneuver" | "areas" | "fires";
 
 export interface GraphicDef {
   kind: ControlMeasureKind;
@@ -83,20 +83,42 @@ export const GRAPHIC_DEFS: readonly GraphicDef[] = [
   { kind: "contain", entity: "151204", label: "Contain", group: "tasks-effect", hint: "Drop it, then click to set size." },
   { kind: "isolate", entity: "341500", label: "Isolate", group: "tasks-effect", hint: "Drop the circle, then click to scale it." },
   { kind: "suppress", entity: "342800", label: "Suppress", group: "tasks-effect", hint: "Click to place. Drag to move." },
-  { kind: "screen", entity: "342203", label: "Screen", group: "tasks-security", hint: "Drop the front, then click toward the protected force." },
-  { kind: "guard", entity: "342202", label: "Guard", group: "tasks-security", hint: "Drop the front, then click toward the protected force." },
-  { kind: "cover", entity: "342201", label: "Cover", group: "tasks-security", hint: "Drop the front, then click toward the protected force." },
+  { kind: "screen", entity: "342203", label: "Screen", group: "tasks-security", hint: "Drop the front, then click toward the protected force. Inner dots space the letters." },
+  { kind: "guard", entity: "342202", label: "Guard", group: "tasks-security", hint: "Drop the front, then click toward the protected force. Inner dots space the letters." },
+  { kind: "cover", entity: "342201", label: "Cover", group: "tasks-security", hint: "Drop the front, then click toward the protected force. Inner dots space the letters." },
   { kind: "support_by_fire", entity: "152100", label: "Support by fire", group: "tasks-security", hint: "Drop the firing line, then click where the arrows should point." },
   { kind: "attack_by_fire", entity: "152000", label: "Attack by fire", group: "tasks-security", hint: "Drop the firing line, then click where fire is directed." },
-  { kind: "objective", entity: "151700", label: "Objective", group: "measures", hint: "Drop the area, then click to scale. Drag the dots to reshape." },
-  { kind: "phase_line", entity: "140300", label: "Phase line", group: "measures", hint: "Drop the line, then click to stretch it." },
-  { kind: "axis_of_advance", entity: "151404", label: "Axis of advance", group: "measures", hint: "Drop the arrow, then click to set length. Last dot is head width." },
-  { kind: "boundary", entity: "110100", label: "Boundary", group: "measures", hint: "Drop the line, then click to stretch it." },
-  { kind: "engagement_area", entity: "151300", label: "Engagement area", group: "measures", hint: "Drop the area, then click to scale." },
-  { kind: "battle_position", entity: "151200", label: "Battle position", group: "measures", hint: "Drop the area, then click to scale." },
-  { kind: "trp", entity: "160300", label: "TRP", group: "measures", hint: "Click to place." },
-  { kind: "checkpoint", entity: "130300", label: "Checkpoint", group: "measures", hint: "Click to place." },
-  { kind: "lz", entity: "150800", label: "LZ", group: "measures", hint: "Drop the area, then click to scale." },
+  { kind: "axis_of_advance", entity: "151403", label: "Axis of advance (main)", group: "maneuver", hint: "Drop the arrow, then click to set length. The diamond is head width." },
+  { kind: "axis_supporting", entity: "151404", label: "Axis of advance (supporting)", group: "maneuver", hint: "Drop the arrow, then click to set length. The diamond is head width." },
+  { kind: "axis_aviation", entity: "151401", label: "Axis of advance (aviation)", group: "maneuver", hint: "Drop the arrow, then click to set length. The diamond is head width." },
+  { kind: "dir_atk_main", entity: "140602", label: "Direction of attack (main)", group: "maneuver", hint: "Drop the arrow, then click the tip." },
+  { kind: "dir_atk_supporting", entity: "140603", label: "Direction of attack (supporting)", group: "maneuver", hint: "Drop the arrow, then click the tip." },
+  { kind: "flot", entity: "140100", label: "FLOT", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "line_of_contact", entity: "140200", label: "Line of contact", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "phase_line", entity: "140300", label: "Phase line", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "feba", entity: "140400", label: "FEBA", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "pdf", entity: "140500", label: "Principal direction of fire", group: "maneuver", hint: "Drop it, then click to set the fan." },
+  { kind: "limit_of_advance", entity: "140900", label: "Limit of advance", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "line_of_departure", entity: "141000", label: "Line of departure", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "ldlc", entity: "141100", label: "LD/LC", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "boundary", entity: "110100", label: "Boundary", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "checkpoint", entity: "130300", label: "Checkpoint", group: "maneuver", hint: "Click to place." },
+  { kind: "objective", entity: "151700", label: "Objective", group: "areas", hint: "Drop the area, then click to scale. Drag the dots to reshape." },
+  { kind: "assembly_area", entity: "150200", label: "Assembly area", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "assault_position", entity: "151500", label: "Assault position", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "attack_position", entity: "151600", label: "Attack position", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "engagement_area", entity: "151300", label: "Engagement area", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "battle_position", entity: "151200", label: "Battle position", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "drop_zone", entity: "150600", label: "Drop zone", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "pickup_zone", entity: "150900", label: "Pickup zone", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "lz", entity: "150800", label: "LZ", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "obstacle", entity: "270100", label: "Obstacle belt", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "trp", entity: "160300", label: "TRP", group: "fires", hint: "Click to place." },
+  { kind: "cfl", entity: "260200", label: "CFL", group: "fires", hint: "Drop the line, then click to stretch it." },
+  { kind: "fscl", entity: "260100", label: "FSCL", group: "fires", hint: "Drop the line, then click to stretch it." },
+  { kind: "nfa", entity: "240301", label: "No-fire area", group: "fires", hint: "Drop the area, then click to scale." },
+  { kind: "rfa", entity: "240401", label: "Restricted fire area", group: "fires", hint: "Drop the area, then click to scale." },
+  { kind: "restrictive_fire_line", entity: "260500", label: "Restrictive fire line", group: "fires", hint: "Drop the line, then click to stretch it." },
 ] as const;
 
 /** Pad drawn points up to the graphic's minimum so a sparse sketch still renders. */
@@ -151,6 +173,158 @@ export function pointSpec(kind: ControlMeasureKind): PointSpec | null {
   return { geometry, min, max };
 }
 
+export function isAxisKind(kind: ControlMeasureKind): boolean {
+  return kind === "axis_of_advance" || kind === "axis_supporting" || kind === "axis_aviation";
+}
+
+export function isSecurityFront(kind: ControlMeasureKind): boolean {
+  return kind === "screen" || kind === "guard" || kind === "cover";
+}
+
+export type VertexRole = "path" | "width" | "protected" | "letter";
+
+/** How each control point should look. Width sits off the ink; letter grips space S/G/C. */
+export function vertexRoles(kind: ControlMeasureKind, count: number): VertexRole[] {
+  if (count <= 0) return [];
+  if (isAxisKind(kind) && count >= 3) {
+    return [...Array<VertexRole>(count - 1).fill("path"), "width"];
+  }
+  if (isSecurityFront(kind)) {
+    if (count >= 4) return ["path", "letter", "letter", "path"];
+    if (count === 3) return ["protected", "path", "path"];
+  }
+  return Array<VertexRole>(count).fill("path");
+}
+
+function axisDefaults(at: [number, number]): [number, number][] {
+  const [x, y] = at;
+  // Axis2: point 1 is the tip, N-1 the rear, N the arrowhead width (off the shaft).
+  return [
+    [x + 140, y],
+    [x - 160, y],
+    [x + 140, y - 50],
+  ];
+}
+
+function securityDefaults(at: [number, number]): [number, number][] {
+  const [x, y] = at;
+  // 4-point Cover/Screen/Guard: P0/P3 front ends, P1/P2 letter grips toward the protected force.
+  return [
+    [x - 160, y],
+    [x - 45, y + 70],
+    [x + 45, y + 70],
+    [x + 160, y],
+  ];
+}
+
+function hypot(a: [number, number], b: [number, number]): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+function lerp(a: [number, number], b: [number, number], t: number): [number, number] {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+/** Longest edge of a 3-point screen is the front; the leftover point is the protected force. */
+export function securityFrontAndProtected(verts: [number, number][]): {
+  left: [number, number];
+  right: [number, number];
+  protectedPt: [number, number];
+} | null {
+  if (verts.length >= 4) {
+    return {
+      left: verts[0]!,
+      right: verts[3]!,
+      protectedPt: [(verts[1]![0] + verts[2]![0]) / 2, (verts[1]![1] + verts[2]![1]) / 2],
+    };
+  }
+  if (verts.length !== 3) return null;
+  let best = 0;
+  let bestLen = -1;
+  const edges: [number, number][] = [
+    [0, 1],
+    [1, 2],
+    [2, 0],
+  ];
+  for (let i = 0; i < 3; i++) {
+    const [ia, ib] = edges[i]!;
+    const len = hypot(verts[ia]!, verts[ib]!);
+    if (len > bestLen) {
+      bestLen = len;
+      best = i;
+    }
+  }
+  const [ia, ib] = edges[best]!;
+  const leftover = ([0, 1, 2] as const).find((i) => i !== ia && i !== ib)!;
+  return { left: verts[ia]!, right: verts[ib]!, protectedPt: verts[leftover]! };
+}
+
+/** Gap between inner letter grips as a fraction of the front length (0.12–0.9). */
+export function securityLetterSpacing(geometry: GeoGeometry): number {
+  const verts = editableVertices(geometry);
+  if (verts.length < 4) return 0.35;
+  const front = hypot(verts[0]!, verts[3]!);
+  if (front < 1) return 0.35;
+  return Math.max(0.12, Math.min(0.9, hypot(verts[1]!, verts[2]!) / front));
+}
+
+export function setSecurityLetterSpacing(geometry: GeoGeometry, spacing: number): GeoGeometry {
+  const verts = editableVertices(geometry);
+  if (verts.length < 4) return geometry;
+  const p0 = verts[0]!;
+  const p1 = verts[1]!;
+  const p2 = verts[2]!;
+  const p3 = verts[3]!;
+  const fx = p3[0] - p0[0];
+  const fy = p3[1] - p0[1];
+  const fl = Math.hypot(fx, fy) || 1;
+  const ux = fx / fl;
+  const uy = fy / fl;
+  const mid: [number, number] = [(p0[0] + p3[0]) / 2, (p0[1] + p3[1]) / 2];
+  const innerMid: [number, number] = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+  const ox = innerMid[0] - mid[0];
+  const oy = innerMid[1] - mid[1];
+  const along = ox * ux + oy * uy;
+  const px = ox - along * ux;
+  const py = oy - along * uy;
+  const t = Math.max(0.12, Math.min(0.9, spacing));
+  const half = (t * fl) / 2;
+  let next = setVertex(geometry, 1, [mid[0] - ux * half + px, mid[1] - uy * half + py]);
+  next = setVertex(next, 2, [mid[0] + ux * half + px, mid[1] + uy * half + py]);
+  return next;
+}
+
+function upgradeSecurityTo4(geometry: GeoGeometry): GeoGeometry {
+  const verts = editableVertices(geometry);
+  const parts = securityFrontAndProtected(verts);
+  if (!parts) return geometry;
+  const { left, right, protectedPt } = parts;
+  const coordinates: [number, number][] = [left, lerp(left, protectedPt, 0.45), lerp(right, protectedPt, 0.45), right];
+  return { type: "LineString", coordinates };
+}
+
+/** Insert a point on the shaft / front — never after an Axis2 width point. */
+export function insertGraphicPoint(kind: ControlMeasureKind, geometry: GeoGeometry, afterIndex?: number, at?: [number, number]): GeoGeometry {
+  const verts = editableVertices(geometry);
+  if (isSecurityFront(kind) && verts.length === 3) return upgradeSecurityTo4(geometry);
+  if (isAxisKind(kind) && verts.length >= 3) {
+    const shaft = verts.slice(0, -1);
+    const edge = afterIndex == null ? longestEdgeIndex(shaft, false) : Math.min(afterIndex, Math.max(0, shaft.length - 2));
+    const a = shaft[Math.max(0, edge)]!;
+    const b = shaft[Math.min(shaft.length - 1, edge + 1)]!;
+    const point = at ?? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    return insertVertex(geometry, edge, point);
+  }
+  if (at != null && afterIndex != null) return insertVertex(geometry, afterIndex, at);
+  return addPointOnLongestEdge(geometry);
+}
+
+/** Last insertable edge index for alt-click (excludes Axis2 width edge). */
+export function graphicEdgeCount(kind: ControlMeasureKind, vertCount: number, closed: boolean): number {
+  if (isAxisKind(kind) && vertCount >= 3) return vertCount - 2;
+  return closed ? vertCount : Math.max(0, vertCount - 1);
+}
+
 /**
  * Control points a graphic starts with when dropped at `at`. Shapes follow
  * the 2525D draw rules for each point count so drops already look doctrinal.
@@ -161,15 +335,14 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
   if (!spec) return [[x, y]];
   if (spec.geometry === "Point" || spec.max === 1) return [[x, y]];
 
-  if (kind === "axis_of_advance") {
+  if (isAxisKind(kind)) return axisDefaults(at);
+  if (kind === "dir_atk_main" || kind === "dir_atk_supporting") {
     return [
-      [x - 170, y],
-      [x + 130, y],
-      [x + 130, y - 55],
+      [x, y + 90],
+      [x, y - 140],
     ];
   }
   if (kind === "support_by_fire") {
-    // Firing line, then the two arrow heads toward the enemy (up on the sheet).
     return [
       [x - 120, y],
       [x + 120, y],
@@ -184,16 +357,8 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
       [x, y - 120],
     ];
   }
-  if (kind === "screen" || kind === "guard" || kind === "cover") {
-    // Front along X; last point is the protected force (down the sheet).
-    return [
-      [x - 140, y],
-      [x + 140, y],
-      [x, y + 90],
-    ];
-  }
+  if (isSecurityFront(kind)) return securityDefaults(at);
   if (kind === "seize") {
-    // Diameter of the objective circle, then the arrow tail.
     return [
       [x - 80, y],
       [x + 80, y],
@@ -275,10 +440,6 @@ export function placeHint(kind: ControlMeasureKind, step: number): string {
   return `${name} — drag to move.`;
 }
 
-function hypot(a: [number, number], b: [number, number]): number {
-  return Math.hypot(a[0] - b[0], a[1] - b[1]);
-}
-
 /** Apply one adjust-click after a stamp. `step` is 0-based. */
 export function applyPlaceAdjust(kind: ControlMeasureKind, geometry: GeoGeometry, click: [number, number], step: number): GeoGeometry {
   const recipe = placeRecipe(kind);
@@ -286,6 +447,20 @@ export function applyPlaceAdjust(kind: ControlMeasureKind, geometry: GeoGeometry
   if (verts.length === 0) return geometry;
 
   if (recipe === "frontThenEnemy") {
+    if (isSecurityFront(kind) && verts.length >= 4) {
+      const spacing = securityLetterSpacing(geometry);
+      const p0 = verts[0]!;
+      const p3 = verts[3]!;
+      const fx = p3[0] - p0[0];
+      const fy = p3[1] - p0[1];
+      const fl = Math.hypot(fx, fy) || 1;
+      const ux = fx / fl;
+      const uy = fy / fl;
+      const half = (spacing * fl) / 2;
+      let next = setVertex(geometry, 1, [click[0] - ux * half, click[1] - uy * half]);
+      next = setVertex(next, 2, [click[0] + ux * half, click[1] + uy * half]);
+      return next;
+    }
     if (kind === "support_by_fire" && verts.length >= 4) {
       const a = verts[0]!;
       const b = verts[1]!;

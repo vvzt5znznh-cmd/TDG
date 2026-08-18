@@ -1,6 +1,6 @@
 import type { Affiliation, Confidence, ControlMeasure, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
 import { editableVertices } from "../../map/geometry";
-import { graphicDef, pointSpec } from "../../map/milstd";
+import { graphicDef, isSecurityFront, pointSpec, securityLetterSpacing, setSecurityLetterSpacing } from "../../map/milstd";
 import { ECHELON_OPTIONS, echelonFromSidc, functionIdFromSidc, UNIT_CATALOG } from "../../map/sidc";
 import { ColorInput, CommitTextInput, Field, NumberInput, Select } from "../fields";
 
@@ -106,7 +106,7 @@ export function Inspector({
         <Field label="Size">
           <NumberInput min={20} max={90} value={symbol.sizePx ?? 42} onChange={(sizePx) => onPatch({ sizePx })} />
         </Field>
-        <Field label="Rotate symbol" hint="Spin the icon. Drag the handle above it.">
+        <Field label="Rotate symbol" hint="Spin the icon. Drag the rotate handle above the box.">
           <NumberInput value={Math.round(symbol.rotationDeg ?? 0)} onChange={(rotationDeg) => onPatch({ rotationDeg })} />
         </Field>
         <Field label="Movement" hint="Speed leader on the symbol. 0 means none — this is not rotation.">
@@ -192,10 +192,22 @@ export function Inspector({
       <Field label="Label" hint={def ? "Drawn by the symbol standard where doctrine puts it." : undefined}>
         <CommitTextInput value={label} onCommit={(value) => onPatch({ label: value })} />
       </Field>
+      {feature.featureType === "control_measure" && isSecurityFront(feature.kind) && verts >= 4 ? (
+        <Field label="Letter spacing" hint="Space between the S, G, or C marks along the front. You can also drag the inner dots.">
+          <input
+            type="range"
+            min={12}
+            max={90}
+            value={Math.round(securityLetterSpacing(feature.geometry) * 100)}
+            onChange={(event) => onPatch({ geometry: setSecurityLetterSpacing(feature.geometry, Number(event.target.value) / 100) })}
+            aria-label="Letter spacing"
+          />
+        </Field>
+      ) : null}
       <RotateAndPoints onRotateBy={onRotateBy} onAddPoint={canAdd ? onAddPoint : undefined} canAdd={Boolean(canAdd)} />
       <p className="hint">
         {feature.featureType === "control_measure"
-          ? "Drag the body to move. White dots are control points. The square scales. The circle above rotates."
+          ? "Drag the body to move. Dots on the ink reshape it. A diamond is width. The square scales. Drag the rotate handle above the box."
           : "Drag to move. Drag the white corners to reshape."}
       </p>
       <button type="button" className="btn btn-danger" onClick={onDelete}>
@@ -218,7 +230,7 @@ function RotateAndPoints({
   return (
     <div className="inspector-actions">
       {onRotateBy ? (
-        <Field label="Rotate" hint="Keeps the size. Or drag the handle above the graphic.">
+        <Field label="Rotate" hint="Keeps the size. Or drag the rotate handle above the box.">
           <span className="rotate-btns">
             {([-90, -15, 15, 90] as const).map((deg) => (
               <button key={deg} type="button" className="tool-btn" onClick={() => onRotateBy(deg)}>

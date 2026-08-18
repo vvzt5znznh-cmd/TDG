@@ -5,6 +5,8 @@ import {
   insertVertex,
   nestedRings,
   rotateGeometry,
+  rotateHandleFromBbox,
+  rotateHandlePoint,
 } from "./geometry";
 import type { GeoGeometry } from "../schema/types";
 
@@ -57,5 +59,14 @@ describe("distToRect", () => {
   it("is zero inside and positive outside", () => {
     expect(distToRect([5, 5], 0, 0, 10, 10)).toBe(0);
     expect(distToRect([20, 5], 0, 0, 10, 10)).toBe(10);
+  });
+});
+
+describe("rotate handle from bbox", () => {
+  it("sits above the top-center of the box at 0°", () => {
+    const { anchor, handle } = rotateHandleFromBbox({ x: 0, y: 0, width: 100, height: 40 }, 0, 20);
+    expect(anchor).toEqual([50, 0]);
+    expect(handle).toEqual([50, -20]);
+    expect(rotateHandlePoint(50, 0, 0, 20)).toEqual([50, -20]);
   });
 });

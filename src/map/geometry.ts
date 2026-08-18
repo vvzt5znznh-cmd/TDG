@@ -245,9 +245,45 @@ export function centroid(pts: [number, number][]): [number, number] {
   return [sum[0] / pts.length, sum[1] / pts.length];
 }
 
-export const ROTATE_HANDLE_DISTANCE = 56;
+export const ROTATE_HANDLE_DISTANCE = 28;
 
-/** Handle sits above the symbol at 0°, then follows rotation. */
+export interface BBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function pointsBBox(pts: [number, number][]): BBox | null {
+  if (pts.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/** Stem from the top-center of the box, then offset by rotation (0° is straight up). */
+export function rotateHandleFromBbox(bbox: BBox, rotationDeg: number, stem = ROTATE_HANDLE_DISTANCE): {
+  anchor: [number, number];
+  handle: [number, number];
+} {
+  const anchor: [number, number] = [bbox.x + bbox.width / 2, bbox.y];
+  return { anchor, handle: rotateHandlePoint(anchor[0], anchor[1], rotationDeg, stem) };
+}
+
+/** Uniform-scale grip: bottom-right of the box. */
+export function scaleHandleFromBbox(bbox: BBox, offset = 18): [number, number] {
+  return [bbox.x + bbox.width + offset, bbox.y + bbox.height + offset];
+}
+
+/** Handle sits above the point at 0°, then follows rotation. */
 export function rotateHandlePoint(cx: number, cy: number, rotationDeg: number, distance = ROTATE_HANDLE_DISTANCE): [number, number] {
   const rad = (rotationDeg * Math.PI) / 180;
   return [cx + Math.sin(rad) * distance, cy - Math.cos(rad) * distance];

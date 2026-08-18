@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { editableVertices, geometryCentroid, nearestEdge, pointerDistance, rotateHandlePoint } from "../../map/geometry";
+import { editableVertices, geometryCentroid, nearestEdge, pointerDistance, pointsBBox, rotateHandleFromBbox, scaleHandleFromBbox, type BBox } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
+import { graphicEdgeCount, isAxisKind, renderControlMeasure, vertexRoles, type VertexRole } from "../../map/milstd";
 import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
 import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
 import { FeatureShape, MapScene } from "./MapView";
@@ -163,9 +164,9 @@ export function MapCanvas({
     }
     if (tool !== "select") return;
     const slop = mapPx(12);
-    if (selected?.featureType === "symbol") {
-      const [sx, sy] = selected.position.coordinates;
-      const handle = rotateHandlePoint(sx, sy, selected.rotationDeg ?? 0, mapPx(44));
+    const box = selected ? featureBBox(selected) : null;
+    if (selected?.featureType === "symbol" && box) {
+      const { handle } = rotateHandleFromBbox(box, selected.rotationDeg ?? 0, mapPx(28));
       if (pointerDistance(point, handle) < slop) {
         onStrokeStart();
         dragRef.current = { kind: "rotate" };
@@ -174,8 +175,8 @@ export function MapCanvas({
         return;
       }
     }
-    if (selected && selected.featureType !== "symbol") {
-      const spinAt = rotateHandlePoint(geometryCentroid(selected.geometry)[0], geometryCentroid(selected.geometry)[1], 0, mapPx(44));
+    if (selected && selected.featureType !== "symbol" && box) {
+      const { handle: spinAt } = rotateHandleFromBbox(box, 0, mapPx(28));
       if (onRotateDelta && pointerDistance(point, spinAt) < slop) {
         onStrokeStart();
         const [cx, cy] = geometryCentroid(selected.geometry);
@@ -185,8 +186,8 @@ export function MapCanvas({
         event.currentTarget.setPointerCapture(event.pointerId);
         return;
       }
-      const scaleAt = scaleHandlePoint(selected);
-      if (scaleAt && onScale && pointerDistance(point, scaleAt) < slop) {
+      const scaleAt = onScale ? scaleHandleFromBbox(box, mapPx(16)) : null;
+      if (scaleAt && pointerDistance(point, scaleAt) < slop) {
         onStrokeStart();
         dragRef.current = { kind: "scale", center: geometryCentroid(selected.geometry), last: point };
         suppressClickRef.current = true;
@@ -308,8 +309,19 @@ export function MapCanvas({
     if (tool === "select") {
       if (event.altKey && selected && selected.featureType !== "symbol" && onInsertVertex) {
         const verts = editableVertices(selected.geometry);
-        const edge = nearestEdge(verts, point, selected.geometry.type === "Polygon");
-        if (edge && edge.dist < mapPx(18)) {
+        const closed = selected.geometry.type === "Polygon";
+        const edgeLimit =
+          selected.featureType === "control_measure"
+            ? graphicEdgeCount(selected.kind, verts.length, closed)
+            : closed
+              ? verts.length
+              : verts.length - 1;
+        const edgeVerts =
+          selected.featureType === "control_measure" && isAxisKind(selected.kind)
+            ? verts.slice(0, Math.max(2, verts.length - 1))
+            : verts;
+        const edge = nearestEdge(edgeVerts, point, closed && edgeLimit === verts.length);
+        if (edge && edge.index < edgeLimit && edge.dist < mapPx(18)) {
           onInsertVertex(selected.id, edge.index, maybeSnap(edge.at));
           return;
         }
@@ -327,16 +339,13 @@ export function MapCanvas({
 
   const handleR = mapPx(6);
   const handles = selected && selected.featureType !== "symbol" ? editableVertices(selected.geometry) : [];
-  const scaleHandle = selected && selected.featureType !== "symbol" && onScale ? scaleHandlePoint(selected) : null;
-  const symbolHandle =
-    selected?.featureType === "symbol"
-      ? rotateHandlePoint(selected.position.coordinates[0], selected.position.coordinates[1], selected.rotationDeg ?? 0, mapPx(44))
-      : null;
-  const geomSpin =
-    selected && selected.featureType !== "symbol" && onRotateDelta
-      ? rotateHandlePoint(geometryCentroid(selected.geometry)[0], geometryCentroid(selected.geometry)[1], 0, mapPx(44))
-      : null;
-  const geomCenter = selected && selected.featureType !== "symbol" ? geometryCentroid(selected.geometry) : null;
+  const roles =
+    selected?.featureType === "control_measure" ? vertexRoles(selected.kind, handles.length) : handles.map(() => "path" as VertexRole);
+  const box = selected ? featureBBox(selected) : null;
+  const scaleHandle = selected && selected.featureType !== "symbol" && onScale && box ? scaleHandleFromBbox(box, mapPx(16)) : null;
+  const symbolSpin =
+    selected?.featureType === "symbol" && box ? rotateHandleFromBbox(box, selected.rotationDeg ?? 0, mapPx(28)) : null;
+  const geomSpin = selected && selected.featureType !== "symbol" && onRotateDelta && box ? rotateHandleFromBbox(box, 0, mapPx(28)) : null;
 
   return (
     <div className={`map-canvas-frame ${greyscale ? "greyscale" : ""}`}>
@@ -390,40 +399,25 @@ export function MapCanvas({
             <FeatureShape feature={ghost} />
           </g>
         ) : null}
-        {tool === "select" &&
-          !placing &&
-          handles.map(([hx, hy], index) => (
-            <circle key={index} className="vertex-handle" cx={hx} cy={hy} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
-          ))}
-        {tool === "select" && !placing && scaleHandle ? (
-          <rect
-            className="scale-handle"
-            x={scaleHandle[0] - handleR}
-            y={scaleHandle[1] - handleR}
-            width={handleR * 2}
-            height={handleR * 2}
-            fill="#fff"
-            stroke="#3e4c34"
-            strokeWidth={handleR / 4}
-          />
-        ) : null}
-        {tool === "select" && !placing && geomSpin && geomCenter ? (
-          <g>
-            <line x1={geomCenter[0]} y1={geomCenter[1]} x2={geomSpin[0]} y2={geomSpin[1]} stroke="#9a2f2a" strokeWidth={handleR / 4} />
-            <circle className="rotate-handle" cx={geomSpin[0]} cy={geomSpin[1]} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
-          </g>
-        ) : null}
-        {tool === "select" && !placing && symbolHandle && selected?.featureType === "symbol" ? (
-          <g>
-            <line
-              x1={selected.position.coordinates[0]}
-              y1={selected.position.coordinates[1]}
-              x2={symbolHandle[0]}
-              y2={symbolHandle[1]}
-              stroke="#9a2f2a"
-              strokeWidth={handleR / 4}
-            />
-            <circle className="rotate-handle" cx={symbolHandle[0]} cy={symbolHandle[1]} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
+        {tool === "select" && !placing ? (
+          <g className="map-handles" pointerEvents="none">
+            {handles.map(([hx, hy], index) => (
+              <VertexHandle key={index} x={hx} y={hy} r={handleR} role={roles[index] ?? "path"} />
+            ))}
+            {scaleHandle ? (
+              <rect
+                className="scale-handle"
+                x={scaleHandle[0] - handleR}
+                y={scaleHandle[1] - handleR}
+                width={handleR * 2}
+                height={handleR * 2}
+                fill="#fff"
+                stroke="#3e4c34"
+                strokeWidth={handleR / 4}
+              />
+            ) : null}
+            {geomSpin ? <RotateHandle anchor={geomSpin.anchor} handle={geomSpin.handle} r={handleR} /> : null}
+            {symbolSpin ? <RotateHandle anchor={symbolSpin.anchor} handle={symbolSpin.handle} r={handleR} /> : null}
           </g>
         ) : null}
       </svg>
@@ -431,14 +425,77 @@ export function MapCanvas({
   );
 }
 
-/** Uniform-scale grip: sits off the bottom-right of the feature's control points. */
-function scaleHandlePoint(feature: MapFeature): [number, number] | null {
-  if (feature.featureType === "symbol") return null;
-  const pts = editableVertices(feature.geometry);
-  if (pts.length < 2) return null;
-  const maxX = Math.max(...pts.map((p) => p[0]));
-  const maxY = Math.max(...pts.map((p) => p[1]));
-  return [maxX + 26, maxY + 26];
+function featureBBox(feature: MapFeature): BBox | null {
+  if (feature.featureType === "symbol") {
+    const [cx, cy] = feature.position.coordinates;
+    const size = feature.sizePx ?? 42;
+    return { x: cx - size / 2, y: cy - size / 2, width: size, height: size };
+  }
+  if (feature.featureType === "control_measure") {
+    const rendered = renderControlMeasure(feature);
+    if (rendered && rendered.width > 4 && rendered.height > 4) {
+      return { x: rendered.x, y: rendered.y, width: rendered.width, height: rendered.height };
+    }
+  }
+  if (!("geometry" in feature)) return null;
+  return pointsBBox(editableVertices(feature.geometry));
+}
+
+function VertexHandle({ x, y, r, role }: { x: number; y: number; r: number; role: VertexRole }) {
+  const stroke = role === "letter" ? "#1f4f7a" : role === "protected" ? "#3e4c34" : "#9a2f2a";
+  if (role === "width") {
+    return (
+      <rect
+        className="vertex-handle vertex-handle-width"
+        x={x - r}
+        y={y - r}
+        width={r * 2}
+        height={r * 2}
+        transform={`rotate(45 ${x} ${y})`}
+        fill="#fff"
+        stroke={stroke}
+        strokeWidth={r / 4}
+      />
+    );
+  }
+  return (
+    <circle
+      className={`vertex-handle vertex-handle-${role}`}
+      cx={x}
+      cy={y}
+      r={role === "letter" ? r * 1.1 : r}
+      fill="#fff"
+      stroke={stroke}
+      strokeWidth={r / 4}
+    />
+  );
+}
+
+/** Circular-arrow rotate control at the end of a stem from the box top-center. */
+function RotateHandle({ anchor, handle, r }: { anchor: [number, number]; handle: [number, number]; r: number }) {
+  const size = r * 1.55;
+  return (
+    <g className="rotate-handle">
+      <line x1={anchor[0]} y1={anchor[1]} x2={handle[0]} y2={handle[1]} stroke="#9a2f2a" strokeWidth={r / 4} />
+      <circle cx={handle[0]} cy={handle[1]} r={size} fill="#fff" stroke="#9a2f2a" strokeWidth={r / 4} />
+      <path
+        d={rotateArrowPath(handle[0], handle[1], size * 0.55)}
+        fill="none"
+        stroke="#9a2f2a"
+        strokeWidth={r / 3.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </g>
+  );
+}
+
+function rotateArrowPath(cx: number, cy: number, radius: number): string {
+  const start = `${cx + radius * 0.15} ${cy - radius}`;
+  const endX = cx + radius;
+  const endY = cy + radius * 0.15;
+  const head = `M ${endX} ${endY} l ${-radius * 0.42} ${-radius * 0.08} M ${endX} ${endY} l ${-radius * 0.08} ${radius * 0.42}`;
+  return `M ${start} A ${radius} ${radius} 0 1 1 ${endX} ${endY} ${head}`;
 }
 
 function visibleFeatures(map: MapDocument, audience: Audience | "all"): MapFeature[] {
