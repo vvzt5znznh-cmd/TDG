@@ -39,6 +39,7 @@ import type {
   GeoGeometry,
   MapDocument,
   MapFeature,
+  MapUnderlay,
   MilSymbol,
   Point,
   Scenario,
@@ -53,7 +54,7 @@ import { MapCanvas, type MapTool } from "./MapCanvas";
 import { geometryFromDraft, usedLegend } from "./MapView";
 import { UnitTray } from "./UnitTray";
 
-/** Leaflet only loads when the author opens the real-ground picker. */
+/** Leaflet only loads when the author opens the map-frame picker. */
 const RealMapPicker = lazy(() => import("./RealMapPicker"));
 
 type DrawKind = "point" | "line" | "polygon";
@@ -470,18 +471,18 @@ export function MapEditor({
     onAsset(ref, await readFileAsDataUrl(file));
     commit({
       ...promoted,
-      underlay: { imageRef: ref, opacity: promoted.underlay?.opacity ?? 1 },
+      underlay: { imageRef: ref, opacity: promoted.underlay?.opacity ?? 1, source: undefined },
     });
   }
 
-  function applyRealGround(dataUrl: string, meters: number) {
+  function applyMapFrame(dataUrl: string, meters: number, source: MapUnderlay["source"]) {
     if (!map) return;
     const promoted = ensureVectorBase(map);
     const ref = promoted.underlay?.imageRef ?? `img_${newId()}`;
     onAsset(ref, dataUrl);
     commit({
       ...promoted,
-      underlay: { imageRef: ref, opacity: 1 },
+      underlay: { imageRef: ref, opacity: 1, source },
       scaleBar: { ...promoted.scaleBar, meters },
     });
     setShowRealMap(false);
@@ -574,8 +575,17 @@ export function MapEditor({
           />
         </div>
         <div className="studio-toolbar-group studio-upload">
-          <button type="button" className="tool-btn" title="Use a real map extent as the sheet's base" onClick={() => setShowRealMap(true)}>
-            Real ground
+          <button
+            type="button"
+            className="tool-btn"
+            title={
+              map.underlay?.source
+                ? "Open the last framed map to nudge it"
+                : "Frame a map as the sheet's base"
+            }
+            onClick={() => setShowRealMap(true)}
+          >
+            {map.underlay?.source ? "Adjust map" : "Frame map"}
           </button>
           <label className="tool-btn" title="Trace over a sketch or photo">
             Tracing image
@@ -812,7 +822,7 @@ export function MapEditor({
 
       {showRealMap ? (
         <Suspense fallback={null}>
-          <RealMapPicker onUse={applyRealGround} onClose={() => setShowRealMap(false)} />
+          <RealMapPicker source={map.underlay?.source} onUse={applyMapFrame} onClose={() => setShowRealMap(false)} />
         </Suspense>
       ) : null}
     </div>

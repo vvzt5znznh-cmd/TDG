@@ -88,6 +88,26 @@ describe("parse and serialize", () => {
     expect(parsed.assets?.[imageRef]).toBe(file.assets?.[imageRef]);
   });
 
+  it("round-trips a framed-map underlay source", () => {
+    const file = createNewFile({ title: "Framed" });
+    if (!("dilemma" in file.content)) throw new Error("expected scenario");
+    const map = file.content.maps[0]!;
+    map.underlay = {
+      imageRef: map.underlay?.imageRef ?? "img_1",
+      opacity: 1,
+      source: {
+        kind: "tiles",
+        layerId: "topo",
+        bounds: { west: 11.1, south: 60.3, east: 11.4, north: 60.55 },
+        center: [60.42, 11.25],
+        zoom: 12,
+      },
+    };
+    const parsed = parseTDGFileText(serializeTDGFile(file));
+    if (!("dilemma" in parsed.content)) throw new Error("expected scenario");
+    expect(parsed.content.maps[0]?.underlay?.source).toEqual(map.underlay.source);
+  });
+
   it("rejects non-objects", () => {
     expect(() => parseTDGFile([])).toThrow(/JSON object/);
     expect(() => parseTDGFileText("{")).toThrow(/not valid JSON/);

@@ -110,6 +110,41 @@ export const TILE_LAYERS: readonly TileLayerDef[] = [
   },
 ] as const;
 
+export const DEFAULT_MAP_FRAME = {
+  layerId: "osm",
+  center: [60.4, 11.2] as [number, number],
+  zoom: 11,
+};
+
+/** Last captured map frame — enough to reopen the picker on the same place. */
+export interface MapFrameSource {
+  kind: "tiles";
+  layerId: string;
+  bounds: GeoBounds;
+  center?: [number, number];
+  zoom?: number;
+}
+
+export function pickerViewFromSource(source?: MapFrameSource | null): {
+  layerId: string;
+  center: [number, number];
+  zoom: number;
+} {
+  if (!source) return { ...DEFAULT_MAP_FRAME };
+  const layerId = TILE_LAYERS.some((layer) => layer.id === source.layerId) ? source.layerId : DEFAULT_MAP_FRAME.layerId;
+  const center: [number, number] = source.center ?? [
+    (source.bounds.south + source.bounds.north) / 2,
+    (source.bounds.west + source.bounds.east) / 2,
+  ];
+  const zoom = source.zoom ?? zoomForBounds(source.bounds);
+  return { layerId, center, zoom };
+}
+
+function zoomForBounds(bounds: GeoBounds): number {
+  const widthFrac = Math.max(1e-9, mercX(bounds.east) - mercX(bounds.west));
+  return Math.max(3, Math.min(16, Math.round(Math.log2(MAP_WIDTH / (widthFrac * 256)))));
+}
+
 export function tileUrl(layer: TileLayerDef, tile: TileRef): string {
   return layer.urlTemplate.replace("{z}", String(tile.z)).replace("{x}", String(tile.x)).replace("{y}", String(tile.y));
 }

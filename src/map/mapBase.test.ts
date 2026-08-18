@@ -90,6 +90,27 @@ describe("editable map base", () => {
     expect([1000, 2000]).toContain(scaleBarMeters(width));
   });
 
+  it("reopens the map picker on the last captured view", async () => {
+    const { pickerViewFromSource, DEFAULT_MAP_FRAME } = await import("./realmap");
+    expect(pickerViewFromSource()).toEqual(DEFAULT_MAP_FRAME);
+    const view = pickerViewFromSource({
+      kind: "tiles",
+      layerId: "topo",
+      bounds: { west: 10, south: 59, east: 12, north: 61 },
+      center: [60.12, 11.05],
+      zoom: 13,
+    });
+    expect(view).toEqual({ layerId: "topo", center: [60.12, 11.05], zoom: 13 });
+    const fromBounds = pickerViewFromSource({
+      kind: "tiles",
+      layerId: "osm",
+      bounds: { west: 11.0, south: 60.3, east: 11.3, north: 60.5 },
+    });
+    expect(fromBounds.center[0]).toBeCloseTo(60.4);
+    expect(fromBounds.center[1]).toBeCloseTo(11.15);
+    expect(fromBounds.zoom).toBeGreaterThan(8);
+  });
+
   it("smooths clicked points into a curve and keeps closed rings closed", () => {
     const open = smoothPath([[0, 0], [100, 40], [200, 0]]);
     expect(open.startsWith("M 0 0 C")).toBe(true);

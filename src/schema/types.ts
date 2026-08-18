@@ -435,10 +435,20 @@ export type BaseLayer =
   | { kind: "raster"; imageRef: string; opacity: number }
   | { kind: "vector"; features: TerrainFeature[] };
 
-/** Optional tracing image under the vector ground (paper, sketch, or uploaded map). */
+/** Optional tracing image under the vector ground (paper, sketch, uploaded photo, or a framed map). */
+export interface MapUnderlaySource {
+  kind: "tiles";
+  layerId: string;
+  bounds: { west: number; south: number; east: number; north: number };
+  /** Leaflet view so the picker can reopen on the same place. */
+  center?: [number, number];
+  zoom?: number;
+}
+
 export interface MapUnderlay {
   imageRef: string;
   opacity: number;
+  source?: MapUnderlaySource;
 }
 
 export interface MapDocument {

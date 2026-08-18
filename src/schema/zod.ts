@@ -405,6 +405,20 @@ const baseLayerSchema = z.discriminatedUnion("kind", [
 export const mapUnderlaySchema = z.object({
   imageRef: z.string(),
   opacity: z.number().min(0).max(1),
+  source: z
+    .object({
+      kind: z.literal("tiles"),
+      layerId: z.string(),
+      bounds: z.object({
+        west: z.number(),
+        south: z.number(),
+        east: z.number(),
+        north: z.number(),
+      }),
+      center: z.tuple([z.number(), z.number()]).optional(),
+      zoom: z.number().optional(),
+    })
+    .optional(),
 });
 
 export const mapDocumentSchema = z.object({
