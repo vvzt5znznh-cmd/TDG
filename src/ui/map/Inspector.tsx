@@ -1,7 +1,8 @@
 import type { Affiliation, Confidence, ControlMeasure, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
-import { graphicDef } from "../../map/milstd";
+import { editableVertices } from "../../map/geometry";
+import { graphicDef, pointSpec } from "../../map/milstd";
 import { ECHELON_OPTIONS, echelonFromSidc, functionIdFromSidc, UNIT_CATALOG } from "../../map/sidc";
-import { CommitTextInput, Field, NumberInput, Select } from "../fields";
+import { ColorInput, CommitTextInput, Field, NumberInput, Select } from "../fields";
 
 const AFFILIATION_OPTIONS: { value: Affiliation; label: string }[] = [
   { value: "friendly", label: "Friendly" },
@@ -16,14 +17,35 @@ const CONFIDENCE_OPTIONS: { value: Confidence; label: string }[] = [
   { value: "templated", label: "Templated" },
 ];
 
+const TERRAIN_DEFAULTS: Record<string, { stroke: string; fill: string }> = {
+  contour: { stroke: "#8a6f4d", fill: "#8a6f4d" },
+  mountain: { stroke: "#7a6247", fill: "#7a6247" },
+  woods: { stroke: "#6f9455", fill: "#89ab6d" },
+  water: { stroke: "#4a7a99", fill: "#9dbfd4" },
+  river: { stroke: "#5b8fae", fill: "#5b8fae" },
+  stream: { stroke: "#5b8fae", fill: "#5b8fae" },
+  wetland: { stroke: "#7f9c6b", fill: "#b5cfa4" },
+  built_up: { stroke: "#5a5248", fill: "#cfc4b2" },
+  building: { stroke: "#1b2118", fill: "#1b2118" },
+  road: { stroke: "#1b2118", fill: "#1b2118" },
+  trail: { stroke: "#1b2118", fill: "#1b2118" },
+  bridge: { stroke: "#1b2118", fill: "#1b2118" },
+  custom: { stroke: "#3e4c34", fill: "#3e4c34" },
+  spot_elevation: { stroke: "#5a4a38", fill: "#5a4a38" },
+};
+
 export function Inspector({
   feature,
   onPatch,
   onDelete,
+  onRotateBy,
+  onAddPoint,
 }: {
   feature: MapFeature | undefined;
   onPatch: (patch: (Partial<MilSymbol> & { functionId?: string }) | Partial<TerrainFeature> | Partial<ControlMeasure>) => void;
   onDelete: () => void;
+  onRotateBy?: (deg: number) => void;
+  onAddPoint?: () => void;
 }) {
   if (!feature) {
     return (
@@ -98,24 +120,119 @@ export function Inspector({
     );
   }
 
+  if (feature.featureType === "terrain") {
+    const paint = TERRAIN_DEFAULTS[feature.kind] ?? TERRAIN_DEFAULTS.custom!;
+    const hill = feature.kind === "mountain" || feature.kind === "contour";
+    return (
+      <aside className="map-inspector">
+        <div className="section-kicker">{feature.kind.replaceAll("_", " ")}</div>
+        <Field label="Label">
+          <CommitTextInput value={feature.label ?? ""} onCommit={(label) => onPatch({ label: label || undefined })} placeholder={hill ? "Hill 214" : ""} />
+        </Field>
+        <Field label="Line color">
+          <ColorInput value={feature.stroke} fallback={paint.stroke} onChange={(stroke) => onPatch({ stroke })} />
+        </Field>
+        {feature.geometry.type !== "LineString" ? (
+          <Field label="Fill color">
+            <ColorInput value={feature.fill} fallback={paint.fill} onChange={(fill) => onPatch({ fill })} />
+          </Field>
+        ) : null}
+        {hill ? (
+          <>
+            <Field label="Peak (m)" hint="Printed at the top. Contour lines step down from this.">
+              <NumberInput value={feature.elevation ?? 0} onChange={(elevation) => onPatch({ elevation: elevation || undefined })} />
+            </Field>
+            <Field label="Contour lines" hint="Including the outline. Each line is one interval.">
+              <NumberInput min={1} max={12} value={feature.contourCount ?? 3} onChange={(contourCount) => onPatch({ contourCount })} />
+            </Field>
+            <Field label="Interval">
+              <Select
+                value={String(feature.contourInterval ?? 10)}
+                options={[
+                  { value: "10", label: "10 m" },
+                  { value: "100", label: "100 m" },
+                ]}
+                onChange={(value) => onPatch({ contourInterval: Number(value) as 10 | 100 })}
+              />
+            </Field>
+          </>
+        ) : null}
+        <RotateAndPoints onRotateBy={onRotateBy} onAddPoint={onAddPoint} canAdd={feature.geometry.type !== "Point"} />
+        <p className="hint">Drag to move. Drag the white corners to reshape. Alt-click a line to add a point.</p>
+        <button type="button" className="btn btn-danger" onClick={onDelete}>
+          Delete
+        </button>
+      </aside>
+    );
+  }
+
   const label = "label" in feature ? feature.label ?? "" : "";
   const def = feature.featureType === "control_measure" ? graphicDef(feature.kind) : undefined;
   const kind = def?.label ?? ("kind" in feature ? feature.kind.replaceAll("_", " ") : feature.featureType);
+  const spec = feature.featureType === "control_measure" ? pointSpec(feature.kind) : null;
+  const verts = "geometry" in feature ? editableVertices(feature.geometry).length : 0;
+  const canAdd =
+    feature.featureType === "control_measure" &&
+    feature.geometry.type !== "Point" &&
+    (!spec || verts < spec.max);
+
   return (
     <aside className="map-inspector">
       <div className="section-kicker">{kind}</div>
       {def ? <p className="hint">{def.hint}</p> : null}
+      {feature.featureType === "control_measure" ? (
+        <Field label="Whose">
+          <Select
+            value={feature.affiliation ?? "friendly"}
+            options={AFFILIATION_OPTIONS}
+            onChange={(affiliation) => onPatch({ affiliation })}
+          />
+        </Field>
+      ) : null}
       <Field label="Label" hint={def ? "Drawn by the symbol standard where doctrine puts it." : undefined}>
         <CommitTextInput value={label} onCommit={(value) => onPatch({ label: value })} />
       </Field>
+      <RotateAndPoints onRotateBy={onRotateBy} onAddPoint={canAdd ? onAddPoint : undefined} canAdd={Boolean(canAdd)} />
       <p className="hint">
         {feature.featureType === "control_measure"
-          ? "Drag the body to move. White dots are the graphic's control points — the symbol redraws itself around them. The square grip scales the whole graphic."
+          ? "Drag the body to move. White dots are control points. The square scales. The circle above rotates."
           : "Drag to move. Drag the white corners to reshape."}
       </p>
       <button type="button" className="btn btn-danger" onClick={onDelete}>
         Delete
       </button>
     </aside>
+  );
+}
+
+function RotateAndPoints({
+  onRotateBy,
+  onAddPoint,
+  canAdd,
+}: {
+  onRotateBy?: (deg: number) => void;
+  onAddPoint?: () => void;
+  canAdd: boolean;
+}) {
+  if (!onRotateBy && !onAddPoint) return null;
+  return (
+    <div className="inspector-actions">
+      {onRotateBy ? (
+        <Field label="Rotate" hint="Keeps the size. Or drag the handle above the graphic.">
+          <span className="rotate-btns">
+            {([-90, -15, 15, 90] as const).map((deg) => (
+              <button key={deg} type="button" className="tool-btn" onClick={() => onRotateBy(deg)}>
+                {deg > 0 ? `+${deg}°` : `${deg}°`}
+              </button>
+            ))}
+          </span>
+        </Field>
+      ) : null}
+      {canAdd && onAddPoint ? (
+        <button type="button" className="btn" onClick={onAddPoint}>
+          Add point
+        </button>
+      ) : null}
+    </div>
   );
 }

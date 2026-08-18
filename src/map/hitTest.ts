@@ -1,12 +1,25 @@
-import type { MapFeature } from "../schema/types";
-import { dist2, distToSegment, editableVertices, pointInRing, pointsOf } from "./geometry";
+import type { GeoGeometry, MapFeature } from "../schema/types";
+import { dist2, distToRect, distToSegment, editableVertices, pointInRing, pointsOf } from "./geometry";
+import { renderControlMeasure } from "./milstd";
 
 export function featureHitDistance(feature: MapFeature, point: [number, number]): number {
   if (feature.featureType === "symbol") {
     const [x, y] = feature.position.coordinates;
     return Math.sqrt(dist2(point, [x, y]));
   }
-  const geometry = feature.geometry;
+  if (feature.featureType === "control_measure") {
+    const lineDist = geometryHitDistance(feature.geometry, point);
+    const rendered = renderControlMeasure(feature);
+    if (!rendered) return lineDist;
+    const pad = 14;
+    const boxDist = distToRect(point, rendered.x - pad, rendered.y - pad, rendered.width + pad * 2, rendered.height + pad * 2);
+    if (boxDist === 0) return Math.min(lineDist, 6);
+    return Math.min(lineDist, boxDist);
+  }
+  return geometryHitDistance(feature.geometry, point);
+}
+
+function geometryHitDistance(geometry: GeoGeometry, point: [number, number]): number {
   if (geometry.type === "Point") {
     const [x, y] = geometry.coordinates;
     return Math.sqrt(dist2(point, [x, y]));
@@ -40,7 +53,12 @@ export function pickFeature(features: MapFeature[], point: [number, number], thr
   let bestRank = -1;
   for (const feature of features) {
     const dist = featureHitDistance(feature, point);
-    const limit = feature.featureType === "symbol" ? Math.max(threshold, (feature.sizePx ?? 42) * 0.7) : threshold;
+    const limit =
+      feature.featureType === "symbol"
+        ? Math.max(threshold, (feature.sizePx ?? 42) * 0.7)
+        : feature.featureType === "terrain" && feature.geometry.type === "LineString"
+          ? Math.max(threshold, 24)
+          : threshold;
     if (dist > limit) continue;
     const rank = feature.featureType === "symbol" ? 3 : feature.featureType === "control_measure" ? 2 : 1;
     if (rank > bestRank || (rank === bestRank && dist < bestDist)) {

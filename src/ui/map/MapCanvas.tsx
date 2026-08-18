@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { editableVertices, geometryCentroid, pointerDistance, rotateHandlePoint } from "../../map/geometry";
+import { editableVertices, geometryCentroid, nearestEdge, pointerDistance, rotateHandlePoint } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
 import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
@@ -14,6 +14,7 @@ type Drag =
   | { kind: "move"; id: string; last: [number, number] }
   | { kind: "vertex"; index: number }
   | { kind: "rotate" }
+  | { kind: "spin"; center: [number, number]; lastAngle: number }
   | { kind: "scale"; center: [number, number]; last: [number, number] };
 
 const DRAG_THRESHOLD_PX = 5;
@@ -34,6 +35,7 @@ export function MapCanvas({
   svgRef: svgRefProp,
   ghost,
   placing,
+  adjusting,
   onViewport,
   onSelect,
   onClickPoint,
@@ -41,10 +43,14 @@ export function MapCanvas({
   onMove,
   onMoveVertex,
   onRotate,
+  onRotateDelta,
   onScale,
   onStrokeStart,
   onStrokeEnd,
   onHoverPoint,
+  onPlaceAt,
+  onAdjustPoint,
+  onInsertVertex,
 }: {
   map: MapDocument;
   imageUrl?: string;
@@ -61,6 +67,7 @@ export function MapCanvas({
   svgRef?: RefObject<SVGSVGElement | null>;
   ghost?: MapFeature | null;
   placing?: boolean;
+  adjusting?: boolean;
   onViewport: (viewport: Viewport) => void;
   onSelect: (id: string | null) => void;
   onClickPoint: (point: Point) => void;
@@ -68,10 +75,14 @@ export function MapCanvas({
   onMove: (id: string, dx: number, dy: number) => void;
   onMoveVertex: (id: string, index: number, point: Point) => void;
   onRotate: (id: string, rotationDeg: number) => void;
+  onRotateDelta?: (id: string, deltaDeg: number) => void;
   onScale?: (id: string, factor: number, center: [number, number]) => void;
   onStrokeStart: () => void;
   onStrokeEnd: () => void;
   onHoverPoint?: (point: [number, number] | null) => void;
+  onPlaceAt?: (point: [number, number]) => void;
+  onAdjustPoint?: (point: [number, number]) => void;
+  onInsertVertex?: (id: string, afterIndex: number, point: [number, number]) => void;
 }) {
   const localSvgRef = useRef<SVGSVGElement>(null);
   const svgRef = svgRefProp ?? localSvgRef;
@@ -164,6 +175,16 @@ export function MapCanvas({
       }
     }
     if (selected && selected.featureType !== "symbol") {
+      const spinAt = rotateHandlePoint(geometryCentroid(selected.geometry)[0], geometryCentroid(selected.geometry)[1], 0, mapPx(44));
+      if (onRotateDelta && pointerDistance(point, spinAt) < slop) {
+        onStrokeStart();
+        const [cx, cy] = geometryCentroid(selected.geometry);
+        const lastAngle = (Math.atan2(point[0] - cx, cy - point[1]) * 180) / Math.PI;
+        dragRef.current = { kind: "spin", center: [cx, cy], lastAngle };
+        suppressClickRef.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
       const scaleAt = scaleHandlePoint(selected);
       if (scaleAt && onScale && pointerDistance(point, scaleAt) < slop) {
         onStrokeStart();
@@ -189,7 +210,8 @@ export function MapCanvas({
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
-    // Empty ground: drag pans the sheet; a plain click still deselects.
+    // During adjust, a click on empty ground sizes the graphic — don't pan.
+    if (adjusting) return;
     dragRef.current = { kind: "pan", lastClient: [event.clientX, event.clientY] };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -253,6 +275,14 @@ export function MapCanvas({
       const deg = (Math.atan2(point[0] - sx, sy - point[1]) * 180) / Math.PI;
       onRotate(selectedId, Math.round(deg));
     }
+    if (drag.kind === "spin") {
+      const deg = (Math.atan2(point[0] - drag.center[0], drag.center[1] - point[1]) * 180) / Math.PI;
+      const delta = deg - drag.lastAngle;
+      if (Math.abs(delta) > 0.2) {
+        onRotateDelta?.(selectedId, delta);
+        drag.lastAngle = deg;
+      }
+    }
   }
 
   function handlePointerUp() {
@@ -261,8 +291,7 @@ export function MapCanvas({
     dragRef.current = null;
   }
 
-  function handleClick(event: { clientX: number; clientY: number }) {
-    if (placing) return;
+  function handleClick(event: { clientX: number; clientY: number; altKey?: boolean }) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
@@ -271,8 +300,24 @@ export function MapCanvas({
     const point = mapPoint(event);
     if (!point) return;
     const snapped = maybeSnap(point);
+    if (placing) {
+      onPlaceAt?.(snapped);
+      return;
+    }
     if (panning) return;
     if (tool === "select") {
+      if (event.altKey && selected && selected.featureType !== "symbol" && onInsertVertex) {
+        const verts = editableVertices(selected.geometry);
+        const edge = nearestEdge(verts, point, selected.geometry.type === "Polygon");
+        if (edge && edge.dist < mapPx(18)) {
+          onInsertVertex(selected.id, edge.index, maybeSnap(edge.at));
+          return;
+        }
+      }
+      if (adjusting) {
+        onAdjustPoint?.(snapped);
+        return;
+      }
       const hit = pickFeature(visibleFeatures(map, audience), snapped, mapPx(12));
       onSelect(hit?.id ?? null);
       return;
@@ -287,6 +332,11 @@ export function MapCanvas({
     selected?.featureType === "symbol"
       ? rotateHandlePoint(selected.position.coordinates[0], selected.position.coordinates[1], selected.rotationDeg ?? 0, mapPx(44))
       : null;
+  const geomSpin =
+    selected && selected.featureType !== "symbol" && onRotateDelta
+      ? rotateHandlePoint(geometryCentroid(selected.geometry)[0], geometryCentroid(selected.geometry)[1], 0, mapPx(44))
+      : null;
+  const geomCenter = selected && selected.featureType !== "symbol" ? geometryCentroid(selected.geometry) : null;
 
   return (
     <div className={`map-canvas-frame ${greyscale ? "greyscale" : ""}`}>
@@ -356,6 +406,12 @@ export function MapCanvas({
             stroke="#3e4c34"
             strokeWidth={handleR / 4}
           />
+        ) : null}
+        {tool === "select" && !placing && geomSpin && geomCenter ? (
+          <g>
+            <line x1={geomCenter[0]} y1={geomCenter[1]} x2={geomSpin[0]} y2={geomSpin[1]} stroke="#9a2f2a" strokeWidth={handleR / 4} />
+            <circle className="rotate-handle" cx={geomSpin[0]} cy={geomSpin[1]} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
+          </g>
         ) : null}
         {tool === "select" && !placing && symbolHandle && selected?.featureType === "symbol" ? (
           <g>

@@ -171,3 +171,25 @@ export function StringList({
 export function optionize<T extends string>(values: readonly T[], labels?: Record<T, string>) {
   return values.map((value) => ({ value, label: labels?.[value] ?? value.replaceAll("_", " ") }));
 }
+
+export function ColorInput({
+  value,
+  fallback,
+  onChange,
+}: {
+  value: string | undefined;
+  fallback: string;
+  onChange: (value: string | undefined) => void;
+}) {
+  const current = value ?? fallback;
+  return (
+    <span className="color-input">
+      <input type="color" value={current} onChange={(event) => onChange(event.target.value)} aria-label="Color" />
+      {value ? (
+        <button type="button" className="btn" onClick={() => onChange(undefined)}>
+          Default
+        </button>
+      ) : null}
+    </span>
+  );
+}

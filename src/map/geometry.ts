@@ -102,6 +102,107 @@ export function scaleGeometry(geometry: GeoGeometry, factor: number, center: [nu
   return { type: "Polygon", coordinates: geometry.coordinates.map((ring) => ring.map(scale)) };
 }
 
+/** Rotate a geometry's points about a center. Positive degrees are clockwise (paper y-down). */
+export function rotateGeometry(geometry: GeoGeometry, deg: number, center: [number, number]): GeoGeometry {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const rot = (pos: Position): Position => {
+    const dx = pos[0] - center[0];
+    const dy = pos[1] - center[1];
+    return [center[0] + dx * cos - dy * sin, center[1] + dx * sin + dy * cos];
+  };
+  if (geometry.type === "Point") return { type: "Point", coordinates: rot(geometry.coordinates) };
+  if (geometry.type === "LineString") return { type: "LineString", coordinates: geometry.coordinates.map(rot) };
+  return { type: "Polygon", coordinates: geometry.coordinates.map((ring) => ring.map(rot)) };
+}
+
+/** Insert a vertex after `afterIndex` on a line or polygon ring. Points are unchanged. */
+export function insertVertex(geometry: GeoGeometry, afterIndex: number, point: Position): GeoGeometry {
+  if (geometry.type === "Point") return geometry;
+  if (geometry.type === "LineString") {
+    const coordinates = geometry.coordinates.slice();
+    const index = Math.max(0, Math.min(coordinates.length, afterIndex + 1));
+    coordinates.splice(index, 0, point);
+    return { type: "LineString", coordinates };
+  }
+  const verts = editableVertices(geometry);
+  if (verts.length === 0) return geometry;
+  const index = Math.max(0, Math.min(verts.length, afterIndex + 1));
+  verts.splice(index, 0, [point[0], point[1]]);
+  const first = verts[0]!;
+  return { type: "Polygon", coordinates: [[...verts, first]] };
+}
+
+export function longestEdgeIndex(pts: [number, number][], closed: boolean): number {
+  if (pts.length < 2) return 0;
+  const last = closed ? pts.length : pts.length - 1;
+  let best = 0;
+  let bestLen = -1;
+  for (let i = 0; i < last; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    const len = dist2(a, b);
+    if (len > bestLen) {
+      bestLen = len;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Midpoint of the longest edge — used by inspector “Add point”. */
+export function addPointOnLongestEdge(geometry: GeoGeometry): GeoGeometry {
+  const verts = editableVertices(geometry);
+  if (verts.length < 2) return geometry;
+  const closed = geometry.type === "Polygon";
+  const edge = longestEdgeIndex(verts, closed);
+  const a = verts[edge]!;
+  const b = verts[(edge + 1) % verts.length]!;
+  return insertVertex(geometry, edge, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+}
+
+export function nearestEdge(pts: [number, number][], point: [number, number], closed: boolean): { index: number; dist: number; at: [number, number] } | null {
+  if (pts.length < 2) return null;
+  const last = closed ? pts.length : pts.length - 1;
+  let best: { index: number; dist: number; at: [number, number] } | null = null;
+  for (let i = 0; i < last; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    const hit = projectOnSegment(point, a, b);
+    if (!best || hit.dist < best.dist) best = { index: i, dist: hit.dist, at: hit.at };
+  }
+  return best;
+}
+
+function projectOnSegment(p: [number, number], a: [number, number], b: [number, number]): { dist: number; at: [number, number] } {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const length2 = dx * dx + dy * dy;
+  if (length2 === 0) return { dist: Math.sqrt(dist2(p, a)), at: a };
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2));
+  const at: [number, number] = [a[0] + t * dx, a[1] + t * dy];
+  return { dist: Math.hypot(p[0] - at[0], p[1] - at[1]), at };
+}
+
+/** Nested contour rings for a hill. `count` is inner rings; factors step toward the peak. */
+export function nestedRings(pts: [number, number][], count: number): [number, number][][] {
+  if (count <= 0 || pts.length < 3) return [];
+  const [cx, cy] = centroid(pts);
+  const rings: [number, number][][] = [];
+  for (let i = 1; i <= count; i++) {
+    const factor = 1 - i / (count + 1);
+    rings.push(pts.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor]));
+  }
+  return rings;
+}
+
+export function distToRect(p: [number, number], x: number, y: number, width: number, height: number): number {
+  const dx = Math.max(x - p[0], 0, p[0] - (x + width));
+  const dy = Math.max(y - p[1], 0, p[1] - (y + height));
+  return Math.hypot(dx, dy);
+}
+
 export function geometryCentroid(geometry: GeoGeometry): [number, number] {
   return centroid(editableVertices(geometry));
 }

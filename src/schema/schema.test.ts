@@ -42,6 +42,40 @@ describe("parse and serialize", () => {
     expect(reparsed.unknownKeys).toEqual(parsed.unknownKeys);
   });
 
+  it("round-trips optional terrain paint and control-measure affiliation", () => {
+    const file = createNewFile({ title: "Paint" });
+    if (!("dilemma" in file.content)) throw new Error("expected scenario");
+    const map = file.content.maps[0]!;
+    if (map.base.kind !== "vector") throw new Error("vector");
+    map.base.features.push({
+      featureType: "terrain",
+      id: "hill_1",
+      kind: "mountain",
+      geometry: { type: "Polygon", coordinates: [[[10, 10], [80, 10], [80, 80], [10, 80], [10, 10]]] },
+      stroke: "#aa7744",
+      contourCount: 5,
+      contourInterval: 100,
+      elevation: 400,
+    });
+    const layer = map.layers.find((item) => item.role === "control_measures");
+    layer?.features.push({
+      featureType: "control_measure",
+      id: "seize_1",
+      kind: "seize",
+      geometry: { type: "LineString", coordinates: [[20, 20], [60, 20], [40, 80]] },
+      label: "OBJ A",
+      affiliation: "hostile",
+    });
+    const parsed = parseTDGFileText(serializeTDGFile(file));
+    if (!("dilemma" in parsed.content)) throw new Error("expected scenario");
+    const next = parsed.content.maps[0]!;
+    if (next.base.kind !== "vector") throw new Error("vector");
+    const hill = next.base.features[0];
+    expect(hill).toMatchObject({ stroke: "#aa7744", contourCount: 5, contourInterval: 100, elevation: 400 });
+    const cm = next.layers.find((item) => item.role === "control_measures")?.features[0];
+    expect(cm).toMatchObject({ kind: "seize", affiliation: "hostile" });
+  });
+
   it("creates a vector base with a paper underlay asset", () => {
     const file = createNewFile();
     if (!("dilemma" in file.content)) throw new Error("expected scenario");

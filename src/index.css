@@ -864,6 +864,33 @@ svg.map-canvas {
   cursor: grab;
 }
 
+.color-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-input input[type="color"] {
+  width: 42px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--paper-3);
+  background: #fff;
+  cursor: pointer;
+}
+
+.rotate-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.inspector-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .map-rail {
   display: flex;
   flex-direction: column;

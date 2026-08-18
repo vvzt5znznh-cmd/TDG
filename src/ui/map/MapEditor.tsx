@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { readFileAsDataUrl } from "../../io/files";
-import { scaleGeometry, setVertex } from "../../map/geometry";
+import { addPointOnLongestEdge, editableVertices, geometryCentroid, insertVertex, rotateGeometry, scaleGeometry, setVertex } from "../../map/geometry";
 import {
   addBaseTerrain,
   allGroundAndOverlayFeatures,
@@ -11,7 +11,14 @@ import {
   moveFeature,
   patchFeature,
 } from "../../map/mapBase";
-import { GRAPHIC_DEFS, defaultPointsAt, type GraphicDef } from "../../map/milstd";
+import {
+  applyPlaceAdjust,
+  defaultPointsAt,
+  placeHint,
+  placeRecipe,
+  placeSteps,
+  pointSpec,
+} from "../../map/milstd";
 import { withSyncedSidc } from "../../map/sidc";
 import { createSymbolFromStamp, layerRoleForAffiliation, type UnitStamp } from "../../map/stamp";
 import {
@@ -55,7 +62,6 @@ interface DrawToolDef {
   label: string;
   draw: DrawKind;
   terrain?: TerrainFeatureKind;
-  control?: ControlMeasureKind;
   hint?: string;
   /** Features whose shape says everything start unlabeled. */
   defaultLabel?: string;
@@ -75,21 +81,6 @@ const GROUND_TOOLS: DrawToolDef[] = [
   { id: "trail", label: "Path", draw: "line", terrain: "trail", hint: "Dotted small road or trail." },
   { id: "bridge", label: "Bridge", draw: "line", terrain: "bridge", hint: "Two clicks across the water — drawn with abutment flares." },
 ];
-
-function graphicTool(def: GraphicDef): DrawToolDef {
-  return {
-    id: def.kind,
-    label: def.label,
-    draw: def.draw,
-    control: def.kind,
-    hint: def.hint,
-    defaultLabel: "",
-  };
-}
-
-const GRAPHIC_TOOLS: DrawToolDef[] = GRAPHIC_DEFS.map(graphicTool);
-
-const ALL_TOOLS: DrawToolDef[] = [...GROUND_TOOLS, ...GRAPHIC_TOOLS];
 
 type PlacePayload = { type: "unit" } | { type: "graphic"; kind: ControlMeasureKind };
 
@@ -147,6 +138,9 @@ export function MapEditor({
   const [showGrid, setShowGrid] = useState(true);
   const [symbolQuery, setSymbolQuery] = useState("");
   const [showRealMap, setShowRealMap] = useState(false);
+  const [openDock, setOpenDock] = useState<"ground" | "units" | "graphics" | "sheet" | null>("graphics");
+  const [armed, setArmed] = useState<PlacePayload | null>(null);
+  const [adjust, setAdjust] = useState<{ id: string; kind: ControlMeasureKind; step: number } | null>(null);
   const [past, setPast] = useState<MapDocument[]>([]);
   const [future, setFuture] = useState<MapDocument[]>([]);
   const strokeRef = useRef<MapDocument | null>(null);
@@ -161,13 +155,15 @@ export function MapEditor({
   snapRef.current = snap;
   const audienceRef = useRef(audience);
   audienceRef.current = audience;
+  const armedRef = useRef(armed);
+  armedRef.current = armed;
   const placeSessionRef = useRef<{ cancelled: boolean } | null>(null);
   const coordListenerRef = useRef<((pt: [number, number] | null) => void) | null>(null);
   const registerCoord = useCallback((fn: (pt: [number, number] | null) => void) => {
     coordListenerRef.current = fn;
   }, []);
 
-  const drawTool = ALL_TOOLS.find((item) => item.id === drawId);
+  const drawTool = GROUND_TOOLS.find((item) => item.id === drawId);
 
   useEffect(() => {
     if (!map) return;
@@ -180,6 +176,7 @@ export function MapEditor({
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         cancelPlace();
+        setAdjust(null);
         setDraft([]);
         setTool("select");
         setDrawId(null);
@@ -215,6 +212,30 @@ export function MapEditor({
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, map, draft, past, future]);
+
+  useEffect(() => {
+    if (!placing) {
+      setGhost(null);
+      return;
+    }
+    function onMove(ev: PointerEvent) {
+      const payload = armedRef.current;
+      if (!payload) return;
+      if (!clientOnSheet(ev)) {
+        setGhost(null);
+        return;
+      }
+      const point = mapPointFromClient(ev);
+      if (!point) {
+        setGhost(null);
+        return;
+      }
+      setGhost(ghostAt(payload, snapPoint(point)));
+    }
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placing]);
 
   const selected = map ? allGroundAndOverlayFeatures(map).find((feature) => feature.id === selectedId) : undefined;
   const imageRef = map ? mapImageRef(map) ?? "" : "";
@@ -302,6 +323,7 @@ export function MapEditor({
       kind: payload.kind,
       geometry: graphicGeometryAt(payload.kind, point),
       label: "",
+      affiliation: "friendly",
     };
     return ghostFeature;
   }
@@ -315,88 +337,83 @@ export function MapEditor({
       kind,
       geometry: graphicGeometryAt(kind, point),
       label: "",
+      affiliation: "friendly",
     };
     commit(addOverlayFeature(ensureLayer(current, "control_measures"), "control_measures", feature));
     setSelectedId(feature.id);
     setTool("select");
     setDrawId(null);
+    const recipe = placeRecipe(kind);
+    if (placeSteps(recipe) > 0) setAdjust({ id: feature.id, kind, step: 0 });
+    else setAdjust(null);
+  }
+
+  function finishPlace(payload: PlacePayload, point: [number, number]) {
+    setPlacing(false);
+    setArmed(null);
+    setGhost(null);
+    if (payload.type === "unit") placeSymbol(point, unitDraftRef.current);
+    else placeGraphic(payload.kind, point);
+  }
+
+  function applyAdjust(point: [number, number]) {
+    if (!adjust) return;
+    const current = mapRef.current;
+    if (!current) return;
+    const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === adjust.id);
+    if (!feature || feature.featureType !== "control_measure") {
+      setAdjust(null);
+      return;
+    }
+    const geometry = applyPlaceAdjust(adjust.kind, feature.geometry, point, adjust.step);
+    commit(patchFeature(current, adjust.id, { geometry }));
+    const nextStep = adjust.step + 1;
+    if (nextStep >= placeSteps(placeRecipe(adjust.kind))) setAdjust(null);
+    else setAdjust({ ...adjust, step: nextStep });
   }
 
   function cancelPlace() {
     if (placeSessionRef.current) placeSessionRef.current.cancelled = true;
     placeSessionRef.current = null;
     setPlacing(false);
+    setArmed(null);
     setGhost(null);
   }
 
   /**
-   * Drag from a palette card places the payload where the pointer releases.
-   * A plain click (no drag) arms the click-to-draw tool instead, when given.
+   * Drag from a palette card places where the pointer releases.
+   * A click on the card arms the next sheet click — the graphic is already visible as a ghost.
    */
-  function beginPlace(payload: PlacePayload, event: ReactPointerEvent, armOnClick?: DrawToolDef) {
+  function beginPlace(payload: PlacePayload, event: ReactPointerEvent) {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    const start: [number, number] = [event.clientX, event.clientY];
-    const session = { cancelled: false, dragging: false };
+    setAdjust(null);
+    setArmed(payload);
+    setPlacing(true);
+    setTool("select");
+    setDrawId(null);
+    setSelectedId(null);
+    const session = { cancelled: false };
     placeSessionRef.current = session;
 
-    function updateGhost(client: { clientX: number; clientY: number }) {
-      if (!clientOnSheet(client)) {
-        setGhost(null);
-        return;
-      }
-      const point = mapPointFromClient(client);
-      if (!point) {
-        setGhost(null);
-        return;
-      }
-      setGhost(ghostAt(payload, snapPoint(point)));
-    }
-
-    function onMove(ev: PointerEvent) {
-      if (session.cancelled) return;
-      if (!session.dragging) {
-        if (Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) < 6) return;
-        session.dragging = true;
-        setTool("select");
-        setDrawId(null);
-        setSelectedId(null);
-        setPlacing(true);
-      }
-      updateGhost(ev);
-    }
-
-    function cleanup() {
-      window.removeEventListener("pointermove", onMove);
+    function onUp(ev: PointerEvent) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
-    }
-
-    function onUp(ev: PointerEvent) {
-      cleanup();
       if (session.cancelled || placeSessionRef.current !== session) return;
       placeSessionRef.current = null;
-      setPlacing(false);
-      setGhost(null);
-      if (!session.dragging) {
-        if (armOnClick) chooseDraw(armOnClick);
-        return;
-      }
       if (!clientOnSheet(ev)) return;
       const point = mapPointFromClient(ev);
       if (!point) return;
-      const snapped = snapPoint(point);
-      if (payload.type === "unit") placeSymbol(snapped, unitDraftRef.current);
-      else placeGraphic(payload.kind, snapped);
+      finishPlace(payload, snapPoint(point));
     }
 
     function onCancel() {
-      cleanup();
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       if (placeSessionRef.current === session) cancelPlace();
     }
 
-    window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
   }
@@ -424,15 +441,6 @@ export function MapEditor({
         label: featureLabel || undefined,
       };
       commit(addBaseTerrain(map, feature));
-    } else if (drawTool.control) {
-      const feature: MapFeature = {
-        featureType: "control_measure",
-        id: newId(),
-        kind: drawTool.control,
-        geometry,
-        label: featureLabel,
-      };
-      commit(addOverlayFeature(map, "control_measures", feature));
     }
     setDraft([]);
   }
@@ -501,13 +509,15 @@ export function MapEditor({
 
   const modeHint = placing
     ? "Place — drop on the sheet. Esc cancels."
-    : tool === "select"
-      ? "Select — drag symbols from the rail onto the sheet. Drag empty ground to pan, wheel zooms. White dots reshape; the square grip scales."
-      : tool === "pan"
-        ? "Pan — drag the sheet. Wheel zooms. 0 fits."
-        : drawTool?.draw === "point"
-          ? `${drawTool.label} — click the map. ${drawTool.hint ?? ""}`
-          : `${drawTool?.label ?? "Draw"} — click points, Enter or double-click finishes, Esc cancels. ${drawTool?.hint ?? ""}`;
+    : adjust
+      ? placeHint(adjust.kind, adjust.step)
+      : tool === "select"
+        ? "Select — drag from the rail onto the sheet. Click a graphic to place it, then click to size it. White dots reshape; square scales; circle rotates."
+        : tool === "pan"
+          ? "Pan — drag the sheet. Wheel zooms. 0 fits."
+          : drawTool?.draw === "point"
+            ? `${drawTool.label} — click the map. ${drawTool.hint ?? ""}`
+            : `${drawTool?.label ?? "Draw"} — click points, Enter or double-click finishes, Esc cancels. ${drawTool?.hint ?? ""}`;
 
   return (
     <div className="map-studio">
@@ -575,12 +585,26 @@ export function MapEditor({
 
       <div className="studio-body">
         <aside className="studio-dock">
-          <details open className="dock-group">
+          <details
+            className="dock-group"
+            open={openDock === "ground"}
+            onToggle={(event) => {
+              if (event.currentTarget.open) setOpenDock("ground");
+              else if (openDock === "ground") setOpenDock(null);
+            }}
+          >
             <summary>Ground</summary>
             <div className="tool-grid">{GROUND_TOOLS.map(toolButton)}</div>
           </details>
 
-          <details open className="dock-group">
+          <details
+            className="dock-group"
+            open={openDock === "units"}
+            onToggle={(event) => {
+              if (event.currentTarget.open) setOpenDock("units");
+              else if (openDock === "units") setOpenDock(null);
+            }}
+          >
             <summary>Units</summary>
             <UnitTray
               stamp={unitDraft}
@@ -592,17 +616,22 @@ export function MapEditor({
             />
           </details>
 
-          <details className="dock-group">
+          <details
+            className="dock-group"
+            open={openDock === "graphics"}
+            onToggle={(event) => {
+              if (event.currentTarget.open) setOpenDock("graphics");
+              else if (openDock === "graphics") setOpenDock(null);
+            }}
+          >
             <summary>Tactical graphics</summary>
             <p className="hint unit-tray-lead">
-              MIL-STD-2525D / APP-6 graphics, drawn by the US Army renderer. Drag one onto the
-              sheet, or click it and place its points yourself.
+              Drag onto the sheet, or click and then click the sheet. The graphic appears immediately; the next click
+              sizes it.
             </p>
             <GraphicPalette
-              activeKind={drawTool?.control ?? null}
-              onCardPointerDown={(def, e) =>
-                beginPlace({ type: "graphic", kind: def.kind }, e, GRAPHIC_TOOLS.find((t) => t.id === def.kind))
-              }
+              activeKind={armed?.type === "graphic" ? armed.kind : (adjust?.kind ?? null)}
+              onCardPointerDown={(def, e) => beginPlace({ type: "graphic", kind: def.kind }, e)}
             />
           </details>
 
@@ -612,7 +641,14 @@ export function MapEditor({
             </Field>
           ) : null}
 
-          <details className="dock-group">
+          <details
+            className="dock-group"
+            open={openDock === "sheet"}
+            onToggle={(event) => {
+              if (event.currentTarget.open) setOpenDock("sheet");
+              else if (openDock === "sheet") setOpenDock(null);
+            }}
+          >
             <summary>Sheet</summary>
             <Field label="Scale (m)">
               <NumberInput min={1} value={map.scaleBar.meters} onChange={(meters) => commit({ ...map, scaleBar: { ...map.scaleBar, meters } })} />
@@ -648,11 +684,32 @@ export function MapEditor({
             svgRef={svgRef}
             ghost={ghost}
             placing={placing}
+            adjusting={Boolean(adjust)}
             onViewport={setViewport}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              if (id !== adjust?.id) setAdjust(null);
+            }}
             onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
             onFinishDraft={finishDraft}
             onHoverPoint={(pt) => coordListenerRef.current?.(pt)}
+            onPlaceAt={(point) => {
+              const payload = armedRef.current;
+              if (!payload) return;
+              finishPlace(payload, point);
+            }}
+            onAdjustPoint={applyAdjust}
+            onInsertVertex={(id, afterIndex, point) => {
+              const current = mapRef.current;
+              if (!current) return;
+              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
+              if (!feature || !("geometry" in feature) || feature.geometry.type === "Point") return;
+              if (feature.featureType === "control_measure") {
+                const spec = pointSpec(feature.kind);
+                if (spec && editableVertices(feature.geometry).length >= spec.max) return;
+              }
+              commit(patchFeature(current, id, { geometry: insertVertex(feature.geometry, afterIndex, point) }));
+            }}
             onMove={(id, dx, dy) => {
               const current = mapRef.current;
               if (!current) return;
@@ -669,6 +726,18 @@ export function MapEditor({
               const current = mapRef.current;
               if (!current) return;
               onChange(replaceMap(scenario, patchFeature(current, id, { rotationDeg })));
+            }}
+            onRotateDelta={(id, deltaDeg) => {
+              const current = mapRef.current;
+              if (!current) return;
+              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
+              if (!feature || !("geometry" in feature)) return;
+              onChange(
+                replaceMap(
+                  scenario,
+                  patchFeature(current, id, { geometry: rotateGeometry(feature.geometry, deltaDeg, geometryCentroid(feature.geometry)) }),
+                ),
+              );
             }}
             onScale={(id, factor, center) => {
               const current = mapRef.current;
@@ -716,7 +785,24 @@ export function MapEditor({
           ) : null}
         </div>
 
-        <Inspector feature={selected} onPatch={(patch) => patchSelected(patch)} onDelete={deleteSelected} />
+        <Inspector
+          feature={selected}
+          onPatch={(patch) => patchSelected(patch)}
+          onDelete={deleteSelected}
+          onRotateBy={(deg) => {
+            if (!selected || !("geometry" in selected) || !map) return;
+            commit(patchFeature(map, selected.id, { geometry: rotateGeometry(selected.geometry, deg, geometryCentroid(selected.geometry)) }));
+          }}
+          onAddPoint={() => {
+            if (!selected || !("geometry" in selected) || !map) return;
+            if (selected.geometry.type === "Point") return;
+            if (selected.featureType === "control_measure") {
+              const spec = pointSpec(selected.kind);
+              if (spec && editableVertices(selected.geometry).length >= spec.max) return;
+            }
+            commit(patchFeature(map, selected.id, { geometry: addPointOnLongestEdge(selected.geometry) }));
+          }}
+        />
       </div>
 
       {showRealMap ? (

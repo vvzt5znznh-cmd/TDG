@@ -1,5 +1,5 @@
-import type { ControlMeasure, ControlMeasureKind } from "../schema/types";
-import { editableVertices } from "./geometry";
+import type { Affiliation, ControlMeasure, ControlMeasureKind, GeoGeometry } from "../schema/types";
+import { centroid, editableVertices, scaleGeometry, setVertex } from "./geometry";
 import { MAP_HEIGHT } from "./viewport";
 
 /**
@@ -56,8 +56,6 @@ export interface GraphicDef {
   entity: string;
   label: string;
   group: GraphicGroup;
-  /** How the author places it: click once, click a line of control points, or outline an area. */
-  draw: "point" | "line" | "polygon";
   hint: string;
 }
 
@@ -66,39 +64,39 @@ export interface GraphicDef {
  * (Control Measure symbol set 25), not transcribed from memory.
  */
 export const GRAPHIC_DEFS: readonly GraphicDef[] = [
-  { kind: "seize", entity: "342300", label: "Seize", group: "tasks-action", draw: "line", hint: "Take possession of the objective. Arrow from your force onto it." },
-  { kind: "clear", entity: "340500", label: "Clear", group: "tasks-action", draw: "line", hint: "Remove all enemy in the area." },
-  { kind: "breach", entity: "340200", label: "Breach", group: "tasks-action", draw: "line", hint: "Break through the obstacle." },
-  { kind: "bypass", entity: "340300", label: "Bypass", group: "tasks-action", draw: "line", hint: "Go around; arms embrace what you avoid." },
-  { kind: "canalize", entity: "340400", label: "Canalize", group: "tasks-action", draw: "line", hint: "Force the enemy into a narrow zone." },
-  { kind: "penetrate", entity: "341800", label: "Penetrate", group: "tasks-action", draw: "line", hint: "Break through the enemy defense." },
-  { kind: "turn", entity: "270504", label: "Turn", group: "tasks-action", draw: "line", hint: "Force the enemy from one approach to another." },
-  { kind: "ambush", entity: "141700", label: "Ambush", group: "tasks-action", draw: "line", hint: "Attack by fire from a concealed position." },
-  { kind: "occupy", entity: "341700", label: "Occupy", group: "tasks-action", draw: "line", hint: "Move into and control the area, unopposed." },
-  { kind: "retain", entity: "151205", label: "Retain", group: "tasks-action", draw: "line", hint: "Keep the terrain against attack." },
-  { kind: "secure", entity: "342100", label: "Secure", group: "tasks-action", draw: "line", hint: "Prevent enemy damage or destruction." },
-  { kind: "block", entity: "340100", label: "Block", group: "tasks-effect", draw: "line", hint: "Deny the enemy an avenue of approach." },
-  { kind: "fix", entity: "341100", label: "Fix", group: "tasks-effect", draw: "line", hint: "Keep the enemy from moving." },
-  { kind: "disrupt", entity: "341000", label: "Disrupt", group: "tasks-effect", draw: "line", hint: "Break up the enemy's tempo and formation." },
-  { kind: "destroy", entity: "340900", label: "Destroy", group: "tasks-effect", draw: "point", hint: "Render the enemy combat-ineffective." },
-  { kind: "neutralize", entity: "341600", label: "Neutralize", group: "tasks-effect", draw: "point", hint: "Make the enemy incapable of interfering." },
-  { kind: "contain", entity: "151204", label: "Contain", group: "tasks-effect", draw: "line", hint: "Stop and hold the enemy on a front." },
-  { kind: "isolate", entity: "341500", label: "Isolate", group: "tasks-effect", draw: "line", hint: "Cut the enemy off from support." },
-  { kind: "suppress", entity: "342800", label: "Suppress", group: "tasks-effect", draw: "point", hint: "Temporarily degrade the enemy." },
-  { kind: "screen", entity: "342203", label: "Screen", group: "tasks-security", draw: "line", hint: "Observe and warn across the front." },
-  { kind: "guard", entity: "342202", label: "Guard", group: "tasks-security", draw: "line", hint: "Protect the main body; fight to gain time." },
-  { kind: "cover", entity: "342201", label: "Cover", group: "tasks-security", draw: "line", hint: "Fight forward, independent of the main body." },
-  { kind: "support_by_fire", entity: "152100", label: "Support by fire", group: "tasks-security", draw: "line", hint: "Position that supports the maneuver force by direct fire." },
-  { kind: "attack_by_fire", entity: "152000", label: "Attack by fire", group: "tasks-security", draw: "line", hint: "Engage without closing with the enemy." },
-  { kind: "objective", entity: "151700", label: "Objective", group: "measures", draw: "polygon", hint: "Area to seize or hold." },
-  { kind: "phase_line", entity: "140300", label: "Phase line", group: "measures", draw: "line", hint: "Line to control the operation's tempo." },
-  { kind: "axis_of_advance", entity: "151404", label: "Axis of advance", group: "measures", draw: "line", hint: "Route arrow; last point sets the head width." },
-  { kind: "boundary", entity: "110100", label: "Boundary", group: "measures", draw: "line", hint: "Limit between units." },
-  { kind: "engagement_area", entity: "151300", label: "Engagement area", group: "measures", draw: "polygon", hint: "Area to mass fires on the enemy." },
-  { kind: "battle_position", entity: "151200", label: "Battle position", group: "measures", draw: "polygon", hint: "Position a unit defends from." },
-  { kind: "trp", entity: "160300", label: "TRP", group: "measures", draw: "point", hint: "Target reference point." },
-  { kind: "checkpoint", entity: "130300", label: "Checkpoint", group: "measures", draw: "point", hint: "Point to control movement." },
-  { kind: "lz", entity: "150800", label: "LZ", group: "measures", draw: "polygon", hint: "Landing zone area." },
+  { kind: "seize", entity: "342300", label: "Seize", group: "tasks-action", hint: "Drop the circle, click to size it, then click the arrow tail." },
+  { kind: "clear", entity: "340500", label: "Clear", group: "tasks-action", hint: "Drop it, then click to set how far the arrows reach." },
+  { kind: "breach", entity: "340200", label: "Breach", group: "tasks-action", hint: "Drop it, then click to set width and depth." },
+  { kind: "bypass", entity: "340300", label: "Bypass", group: "tasks-action", hint: "Drop it, then click to set how far the arms go around." },
+  { kind: "canalize", entity: "340400", label: "Canalize", group: "tasks-action", hint: "Drop it, then click to set the funnel." },
+  { kind: "penetrate", entity: "341800", label: "Penetrate", group: "tasks-action", hint: "Drop it, then click to set how far it drives through." },
+  { kind: "turn", entity: "270504", label: "Turn", group: "tasks-action", hint: "Drop it, then click to set size." },
+  { kind: "ambush", entity: "141700", label: "Ambush", group: "tasks-action", hint: "Drop it, then click to set the arms." },
+  { kind: "occupy", entity: "341700", label: "Occupy", group: "tasks-action", hint: "Drop the circle, then click to scale it." },
+  { kind: "retain", entity: "151205", label: "Retain", group: "tasks-action", hint: "Drop the circle, then click to scale it." },
+  { kind: "secure", entity: "342100", label: "Secure", group: "tasks-action", hint: "Drop the circle, then click to scale it." },
+  { kind: "block", entity: "340100", label: "Block", group: "tasks-effect", hint: "Drop it, then click to set size." },
+  { kind: "fix", entity: "341100", label: "Fix", group: "tasks-effect", hint: "Drop it, then click to set length." },
+  { kind: "disrupt", entity: "341000", label: "Disrupt", group: "tasks-effect", hint: "Drop it, then click to set size." },
+  { kind: "destroy", entity: "340900", label: "Destroy", group: "tasks-effect", hint: "Click to place. Drag to move." },
+  { kind: "neutralize", entity: "341600", label: "Neutralize", group: "tasks-effect", hint: "Click to place. Drag to move." },
+  { kind: "contain", entity: "151204", label: "Contain", group: "tasks-effect", hint: "Drop it, then click to set size." },
+  { kind: "isolate", entity: "341500", label: "Isolate", group: "tasks-effect", hint: "Drop the circle, then click to scale it." },
+  { kind: "suppress", entity: "342800", label: "Suppress", group: "tasks-effect", hint: "Click to place. Drag to move." },
+  { kind: "screen", entity: "342203", label: "Screen", group: "tasks-security", hint: "Drop the front, then click toward the protected force." },
+  { kind: "guard", entity: "342202", label: "Guard", group: "tasks-security", hint: "Drop the front, then click toward the protected force." },
+  { kind: "cover", entity: "342201", label: "Cover", group: "tasks-security", hint: "Drop the front, then click toward the protected force." },
+  { kind: "support_by_fire", entity: "152100", label: "Support by fire", group: "tasks-security", hint: "Drop the firing line, then click where the arrows should point." },
+  { kind: "attack_by_fire", entity: "152000", label: "Attack by fire", group: "tasks-security", hint: "Drop the firing line, then click where fire is directed." },
+  { kind: "objective", entity: "151700", label: "Objective", group: "measures", hint: "Drop the area, then click to scale. Drag the dots to reshape." },
+  { kind: "phase_line", entity: "140300", label: "Phase line", group: "measures", hint: "Drop the line, then click to stretch it." },
+  { kind: "axis_of_advance", entity: "151404", label: "Axis of advance", group: "measures", hint: "Drop the arrow, then click to set length. Last dot is head width." },
+  { kind: "boundary", entity: "110100", label: "Boundary", group: "measures", hint: "Drop the line, then click to stretch it." },
+  { kind: "engagement_area", entity: "151300", label: "Engagement area", group: "measures", hint: "Drop the area, then click to scale." },
+  { kind: "battle_position", entity: "151200", label: "Battle position", group: "measures", hint: "Drop the area, then click to scale." },
+  { kind: "trp", entity: "160300", label: "TRP", group: "measures", hint: "Click to place." },
+  { kind: "checkpoint", entity: "130300", label: "Checkpoint", group: "measures", hint: "Click to place." },
+  { kind: "lz", entity: "150800", label: "LZ", group: "measures", hint: "Drop the area, then click to scale." },
 ] as const;
 
 /** Pad drawn points up to the graphic's minimum so a sparse sketch still renders. */
@@ -122,9 +120,17 @@ export function graphicDef(kind: ControlMeasureKind): GraphicDef | undefined {
   return DEF_BY_KIND.get(kind);
 }
 
-export function sidcFor(kind: ControlMeasureKind): string | undefined {
+const AFFILIATION_IDENTITY: Record<Affiliation, string> = {
+  unknown: "1",
+  friendly: "3",
+  neutral: "4",
+  hostile: "6",
+};
+
+export function sidcFor(kind: ControlMeasureKind, affiliation: Affiliation = "friendly"): string | undefined {
   const def = DEF_BY_KIND.get(kind);
-  return def ? `1003250000${def.entity}0000` : undefined;
+  if (!def) return undefined;
+  return `100${AFFILIATION_IDENTITY[affiliation]}250000${def.entity}0000`;
 }
 
 export interface PointSpec {
@@ -156,7 +162,6 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
   if (spec.geometry === "Point" || spec.max === 1) return [[x, y]];
 
   if (kind === "axis_of_advance") {
-    // Route start → head, then a trailing width point.
     return [
       [x - 170, y],
       [x + 130, y],
@@ -164,42 +169,58 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
     ];
   }
   if (kind === "support_by_fire") {
+    // Firing line, then the two arrow heads toward the enemy (up on the sheet).
     return [
       [x - 120, y],
       [x + 120, y],
-      [x - 120, y - 110],
-      [x + 120, y - 110],
+      [x - 80, y - 120],
+      [x + 80, y - 120],
     ];
   }
-  if (kind === "screen" || kind === "guard" || kind === "cover" || kind === "seize") {
+  if (kind === "attack_by_fire") {
     return [
-      [x - 130, y - 60],
-      [x, y + 50],
-      [x + 130, y - 60],
+      [x - 110, y],
+      [x + 110, y],
+      [x, y - 120],
+    ];
+  }
+  if (kind === "screen" || kind === "guard" || kind === "cover") {
+    // Front along X; last point is the protected force (down the sheet).
+    return [
+      [x - 140, y],
+      [x + 140, y],
+      [x, y + 90],
+    ];
+  }
+  if (kind === "seize") {
+    // Diameter of the objective circle, then the arrow tail.
+    return [
+      [x - 80, y],
+      [x + 80, y],
+      [x, y + 150],
     ];
   }
   if (spec.min <= 2 && spec.max === 2) {
     return [
-      [x - 100, y],
-      [x + 100, y],
+      [x, y],
+      [x + 95, y],
     ];
   }
   if (spec.max === 3) {
     return [
-      [x - 110, y + 55],
-      [x + 110, y + 55],
-      [x, y - 90],
+      [x - 110, y],
+      [x + 110, y],
+      [x, y - 100],
     ];
   }
   if (spec.max === 4) {
     return [
-      [x - 120, y + 50],
-      [x + 120, y + 50],
-      [x - 60, y - 80],
-      [x + 60, y - 80],
+      [x - 120, y],
+      [x + 120, y],
+      [x - 60, y - 90],
+      [x + 60, y - 90],
     ];
   }
-  // Free polygon areas (objective, LZ, battle position, engagement area).
   const r = 110;
   const pts: [number, number][] = [];
   for (let i = 0; i < 5; i++) {
@@ -207,6 +228,89 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
     pts.push([Math.round(x + r * Math.cos(angle)), Math.round(y + r * 0.72 * Math.sin(angle))]);
   }
   return pts;
+}
+
+export type PlaceRecipe = "stamp" | "scale" | "circleThenArrow" | "frontThenEnemy";
+
+export function placeRecipe(kind: ControlMeasureKind): PlaceRecipe {
+  switch (kind) {
+    case "seize":
+      return "circleThenArrow";
+    case "screen":
+    case "guard":
+    case "cover":
+    case "support_by_fire":
+    case "attack_by_fire":
+      return "frontThenEnemy";
+    case "destroy":
+    case "neutralize":
+    case "suppress":
+    case "trp":
+    case "checkpoint":
+      return "stamp";
+    default:
+      return "scale";
+  }
+}
+
+export function placeSteps(recipe: PlaceRecipe): number {
+  if (recipe === "stamp") return 0;
+  if (recipe === "circleThenArrow") return 2;
+  return 1;
+}
+
+export function placeHint(kind: ControlMeasureKind, step: number): string {
+  const def = graphicDef(kind);
+  const name = def?.label ?? kind;
+  const recipe = placeRecipe(kind);
+  if (recipe === "circleThenArrow") {
+    return step === 0 ? `${name} — click to set the circle size.` : `${name} — click the tail of the arrow.`;
+  }
+  if (recipe === "frontThenEnemy") {
+    return kind === "support_by_fire" || kind === "attack_by_fire"
+      ? `${name} — click where the arrows should point.`
+      : `${name} — click toward the protected force.`;
+  }
+  if (recipe === "scale") return `${name} — click to set the size. Esc when it looks right.`;
+  return `${name} — drag to move.`;
+}
+
+function hypot(a: [number, number], b: [number, number]): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+/** Apply one adjust-click after a stamp. `step` is 0-based. */
+export function applyPlaceAdjust(kind: ControlMeasureKind, geometry: GeoGeometry, click: [number, number], step: number): GeoGeometry {
+  const recipe = placeRecipe(kind);
+  const verts = editableVertices(geometry);
+  if (verts.length === 0) return geometry;
+
+  if (recipe === "frontThenEnemy") {
+    if (kind === "support_by_fire" && verts.length >= 4) {
+      const a = verts[0]!;
+      const b = verts[1]!;
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const length = Math.max(hypot(click, mid), 8);
+      const dx = click[0] - mid[0];
+      const dy = click[1] - mid[1];
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = (dx / dist) * length;
+      const uy = (dy / dist) * length;
+      let next = setVertex(geometry, 2, [a[0] + ux, a[1] + uy]);
+      next = setVertex(next, 3, [b[0] + ux, b[1] + uy]);
+      return next;
+    }
+    return setVertex(geometry, verts.length - 1, click);
+  }
+
+  if (recipe === "circleThenArrow" && step >= 1) {
+    return setVertex(geometry, verts.length - 1, click);
+  }
+
+  const center = centroid(verts);
+  const radius = Math.max(...verts.map((v) => hypot(center, v)), 8);
+  const nextRadius = Math.max(hypot(center, click), 8);
+  return scaleGeometry(geometry, nextRadius / radius, center);
 }
 
 export interface RenderedGraphic {
@@ -234,9 +338,9 @@ function metaNumber(svg: string, tag: string): number | null {
 const cache = new Map<string, RenderedGraphic | null>();
 
 /** Render a control measure through the Army renderer into paper space. */
-export function renderControlMeasure(feature: Pick<ControlMeasure, "kind" | "geometry" | "label">): RenderedGraphic | null {
+export function renderControlMeasure(feature: Pick<ControlMeasure, "kind" | "geometry" | "label" | "affiliation">): RenderedGraphic | null {
   if (!c5) return null;
-  const sidc = sidcFor(feature.kind);
+  const sidc = sidcFor(feature.kind, feature.affiliation ?? "friendly");
   if (!sidc) return null;
   const points = padPoints(feature.kind, editableVertices(feature.geometry));
   if (points.length === 0) return null;

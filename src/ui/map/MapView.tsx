@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { Audience, ControlMeasure, GeoGeometry, MapDocument, MapFeature, TerrainFeature, TerrainFeatureKind } from "../../schema/types";
-import { centroid, editableVertices, pointsOf, smoothPath, toSvgPoints } from "../../map/geometry";
+import { centroid, editableVertices, nestedRings, pointsOf, smoothPath, toSvgPoints } from "../../map/geometry";
 import { renderControlMeasure } from "../../map/milstd";
 import { baseFeatures, isRasterUnderlay, syntheticBaseLayer } from "../../map/mapBase";
 import { MAP_HEIGHT, MAP_WIDTH } from "../../map/viewport";
@@ -31,10 +31,12 @@ const TERRAIN_PAINT: Record<TerrainFeatureKind, { color: string; fill: string; w
   custom: { color: "#3e4c34", fill: "#3e4c34", width: 2 },
 };
 
-function terrainPaint(kind: TerrainFeatureKind, loadBearing?: boolean, highlight?: boolean) {
+function terrainPaint(feature: TerrainFeature, loadBearing?: boolean, highlight?: boolean) {
   if (loadBearing) return { color: "#9a2f2a", fill: "#9a2f2a", width: 4 };
-  const paint = TERRAIN_PAINT[kind];
-  return highlight ? { ...paint, width: paint.width + 2 } : paint;
+  const paint = TERRAIN_PAINT[feature.kind];
+  const color = feature.stroke ?? paint.color;
+  const fill = feature.fill ?? paint.fill;
+  return highlight ? { color, fill, width: paint.width + 2 } : { color, fill, width: paint.width };
 }
 
 /**
@@ -85,12 +87,6 @@ export function ControlMeasureShape({
   );
 }
 
-/** Shrink a ring toward its centroid — nested contour lines for hills. */
-function innerRing(pts: [number, number][], factor: number): [number, number][] {
-  const [cx, cy] = centroid(pts);
-  return pts.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
-}
-
 /** The ")(" abutment flares at both ends of a bridge deck. */
 function bridgeFlares(pts: [number, number][]): ReactElement[] {
   const flares: ReactElement[] = [];
@@ -123,7 +119,7 @@ function bridgeFlares(pts: [number, number][]): ReactElement[] {
 function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFeature; highlight?: boolean; loadBearing?: boolean }) {
   const pts = pointsOf(feature.geometry);
   if (pts.length === 0) return null;
-  const paint = terrainPaint(feature.kind, loadBearing, highlight);
+  const paint = terrainPaint(feature, loadBearing, highlight);
   const emphasis = highlight || loadBearing;
   const label =
     feature.label && pts[0] ? (
@@ -188,15 +184,34 @@ function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFea
     const d = smoothPath(ring, true);
     if (feature.kind === "mountain" || feature.kind === "contour") {
       const [cx, cy] = centroid(ring);
+      const total = Math.max(1, Math.min(12, feature.contourCount ?? 3));
+      const innerCount = Math.max(0, total - 1);
+      const interval = feature.contourInterval ?? 10;
+      const peak = feature.elevation;
+      const inners = nestedRings(ring, innerCount);
       return (
         <g>
-          {/* Unfilled dashed contour rings with the hilltop number, like a photocopied map. */}
           <path d={d} fill="#efe9d6" fillOpacity={emphasis ? 0.5 : 0.01} stroke={paint.color} strokeWidth={paint.width} strokeDasharray="10 5" />
-          <path d={smoothPath(innerRing(ring, 0.62), true)} fill="none" stroke={paint.color} strokeWidth={1.7} strokeDasharray="8 5" />
-          <path d={smoothPath(innerRing(ring, 0.3), true)} fill="none" stroke={paint.color} strokeWidth={1.7} strokeDasharray="6 4" />
-          {feature.label ? (
+          {inners.map((inner, index) => (
+            <g key={index}>
+              <path d={smoothPath(inner, true)} fill="none" stroke={paint.color} strokeWidth={1.7} strokeDasharray={`${Math.max(4, 8 - index)} ${4 + index}`} />
+              {peak != null ? (
+                <text
+                  x={centroid(inner)[0]}
+                  y={centroid(inner)[1] + 4}
+                  textAnchor="middle"
+                  fontSize={11}
+                  fontFamily="serif"
+                  fill={paint.color}
+                >
+                  {peak - (innerCount - index) * interval}
+                </text>
+              ) : null}
+            </g>
+          ))}
+          {feature.label || peak != null ? (
             <text x={cx} y={cy + 5} textAnchor="middle" fontSize={15} fontFamily="serif" fontWeight={600} fill="#3c4336">
-              {feature.label}
+              {feature.label ?? String(peak)}
             </text>
           ) : null}
         </g>
@@ -388,7 +403,7 @@ export function usedLegend(map: MapDocument, audience: Audience | "all") {
         const key = `t-${feature.kind}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        entries.push({ id: key, label: feature.kind.replaceAll("_", " "), color: TERRAIN_PAINT[feature.kind].fill });
+        entries.push({ id: key, label: feature.kind.replaceAll("_", " "), color: feature.stroke ?? TERRAIN_PAINT[feature.kind].fill });
       }
     }
   }

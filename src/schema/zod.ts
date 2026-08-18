@@ -310,6 +310,10 @@ const terrainFeatureSchema = z.object({
   fillPatternId: z.string().optional(),
   label: z.string().optional(),
   elevation: z.number().optional(),
+  stroke: z.string().optional(),
+  fill: z.string().optional(),
+  contourCount: z.number().int().min(1).max(12).optional(),
+  contourInterval: z.union([z.literal(10), z.literal(100)]).optional(),
   loadBearing: z.boolean().optional(),
 });
 
@@ -340,6 +344,7 @@ const controlMeasureSchema = z.object({
   kind: controlKindSchema,
   geometry: geometrySchema,
   label: z.string(),
+  affiliation: affiliationSchema.optional(),
 });
 
 const annotationSchema = z.object({

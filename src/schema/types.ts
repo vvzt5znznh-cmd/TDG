@@ -347,6 +347,14 @@ export interface TerrainFeature {
   fillPatternId?: string;
   label?: string;
   elevation?: number;
+  /** Stroke paint; falls back to the default for this kind of ground. */
+  stroke?: string;
+  /** Fill paint; falls back to the default for this kind of ground. */
+  fill?: string;
+  /** Contour lines on a hill, including the outline. Default 3. */
+  contourCount?: number;
+  /** Metres between hill contour lines on a standard map. */
+  contourInterval?: 10 | 100;
   /** Derived at validate/render time from dilemma mapFeatureRefs. */
   loadBearing?: boolean;
 }
@@ -381,6 +389,8 @@ export interface ControlMeasure {
   kind: ControlMeasureKind;
   geometry: GeoGeometry;
   label: string;
+  /** Whose graphic this is; drives the 2525D identity digit. Default friendly. */
+  affiliation?: Affiliation;
 }
 
 export interface Annotation {
