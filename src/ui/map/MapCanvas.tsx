@@ -9,7 +9,7 @@ import { FeatureShape, MapScene } from "./MapView";
 export type MapTool = "select" | "pan" | "draw";
 
 type Drag =
-  | { kind: "pan"; lastClient: [number, number] }
+  | { kind: "pan"; lastClient: [number, number]; moved?: boolean }
   | { kind: "press"; id: string; start: [number, number]; last: [number, number] }
   | { kind: "move"; id: string; last: [number, number] }
   | { kind: "vertex"; index: number }
@@ -90,7 +90,13 @@ export function MapCanvas({
       if (!el) return;
       event.preventDefault();
       const point = clientToMapFromSvg(el, event, viewport);
-      const factor = event.deltaY > 0 ? 0.9 : 1.1;
+      // Trackpad pinch arrives as ctrl+wheel with fine deltas; plain wheel steps stay gentle.
+      const factor =
+        event.ctrlKey || event.metaKey
+          ? Math.exp(-event.deltaY * 0.012)
+          : event.deltaY > 0
+            ? 0.92
+            : 1.09;
       onViewport(zoomViewport(viewport, factor, point));
     }
     node.addEventListener("wheel", onWheel, { passive: false });
@@ -181,7 +187,11 @@ export function MapCanvas({
       dragRef.current = { kind: "press", id: hit.id, start: point, last: point };
       suppressClickRef.current = true;
       event.currentTarget.setPointerCapture(event.pointerId);
+      return;
     }
+    // Empty ground: drag pans the sheet; a plain click still deselects.
+    dragRef.current = { kind: "pan", lastClient: [event.clientX, event.clientY] };
+    event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
@@ -200,10 +210,14 @@ export function MapCanvas({
       if (!svg) return;
       const rect = svg.getBoundingClientRect();
       const scale = contentScale(rect, viewport);
-      const dx = (event.clientX - drag.lastClient[0]) / scale;
-      const dy = (event.clientY - drag.lastClient[1]) / scale;
+      const dxClient = event.clientX - drag.lastClient[0];
+      const dyClient = event.clientY - drag.lastClient[1];
+      if (!drag.moved && Math.abs(dxClient) + Math.abs(dyClient) > 3) {
+        drag.moved = true;
+        suppressClickRef.current = true;
+      }
       drag.lastClient = [event.clientX, event.clientY];
-      onViewport(clampViewport({ ...viewport, x: viewport.x - dx, y: viewport.y - dy }));
+      onViewport(clampViewport({ ...viewport, x: viewport.x - dxClient / scale, y: viewport.y - dyClient / scale }));
       return;
     }
     const point = mapPoint(event);

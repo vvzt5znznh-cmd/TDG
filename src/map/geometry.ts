@@ -64,6 +64,36 @@ export function translateFeature(feature: MapFeature, dx: number, dy: number): M
   return { ...feature, geometry: translateGeometry(feature.geometry, dx, dy) } as MapFeature;
 }
 
+/**
+ * Catmull-Rom spline through the points as an SVG path — a few clicks give the
+ * organic hand-drawn curves of a TDG sheet instead of hard polylines.
+ */
+export function smoothPath(pts: [number, number][], closed = false): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M ${pts[0]![0]} ${pts[0]![1]}`;
+  if (pts.length === 2 && !closed) {
+    return `M ${pts[0]![0]} ${pts[0]![1]} L ${pts[1]![0]} ${pts[1]![1]}`;
+  }
+  const n = pts.length;
+  const at = (i: number): [number, number] => {
+    if (closed) return pts[((i % n) + n) % n]!;
+    return pts[Math.max(0, Math.min(n - 1, i))]!;
+  };
+  const round = (v: number) => Math.round(v * 10) / 10;
+  let d = `M ${round(at(0)[0])} ${round(at(0)[1])}`;
+  const last = closed ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const p0 = at(i - 1);
+    const p1 = at(i);
+    const p2 = at(i + 1);
+    const p3 = at(i + 2);
+    const c1: [number, number] = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2: [number, number] = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C ${round(c1[0])} ${round(c1[1])}, ${round(c2[0])} ${round(c2[1])}, ${round(p2[0])} ${round(p2[1])}`;
+  }
+  return closed ? `${d} Z` : d;
+}
+
 /** Scale a geometry's points about a fixed center (uniform warp of control points). */
 export function scaleGeometry(geometry: GeoGeometry, factor: number, center: [number, number]): GeoGeometry {
   const scale = (pos: Position): Position => [center[0] + (pos[0] - center[0]) * factor, center[1] + (pos[1] - center[1]) * factor];

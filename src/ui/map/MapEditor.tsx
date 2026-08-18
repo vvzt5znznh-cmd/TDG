@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { readFileAsDataUrl } from "../../io/files";
 import { scaleGeometry, setVertex } from "../../map/geometry";
 import {
@@ -45,6 +45,9 @@ import { MapCanvas, type MapTool } from "./MapCanvas";
 import { geometryFromDraft, usedLegend } from "./MapView";
 import { UnitTray } from "./UnitTray";
 
+/** Leaflet only loads when the author opens the real-ground picker. */
+const RealMapPicker = lazy(() => import("./RealMapPicker"));
+
 type DrawKind = "point" | "line" | "polygon";
 
 interface DrawToolDef {
@@ -59,16 +62,18 @@ interface DrawToolDef {
 }
 
 const GROUND_TOOLS: DrawToolDef[] = [
-  { id: "mountain", label: "Mountain", draw: "polygon", terrain: "mountain", hint: "Click the hill mass outline. Enter finishes." },
-  { id: "woods", label: "Woods", draw: "polygon", terrain: "woods" },
+  { id: "mountain", label: "Hill", draw: "polygon", terrain: "mountain", hint: "Click the hill outline; label it with the height (e.g. 293). Enter finishes." },
+  { id: "contour", label: "Contour", draw: "line", terrain: "contour", hint: "A single dashed contour line." },
+  { id: "woods", label: "Woods", draw: "polygon", terrain: "woods", hint: "Stippled vegetation. Clicks become a smooth blob." },
   { id: "water", label: "Lake", draw: "polygon", terrain: "water" },
   { id: "wetland", label: "Swamp", draw: "polygon", terrain: "wetland" },
   { id: "built_up", label: "Town", draw: "polygon", terrain: "built_up" },
+  { id: "building", label: "Building", draw: "point", terrain: "building", hint: "One structure — a filled square." },
   { id: "river", label: "River", draw: "line", terrain: "river" },
   { id: "stream", label: "Stream", draw: "line", terrain: "stream" },
-  { id: "road", label: "Road", draw: "line", terrain: "road", hint: "Main road. Use Path for the small one." },
-  { id: "trail", label: "Path", draw: "line", terrain: "trail", hint: "Small road or trail." },
-  { id: "bridge", label: "Bridge", draw: "line", terrain: "bridge", hint: "Short line across the water." },
+  { id: "road", label: "Road", draw: "line", terrain: "road", hint: "Bold black road. Use Path for the small one." },
+  { id: "trail", label: "Path", draw: "line", terrain: "trail", hint: "Dotted small road or trail." },
+  { id: "bridge", label: "Bridge", draw: "line", terrain: "bridge", hint: "Two clicks across the water — drawn with abutment flares." },
 ];
 
 function graphicTool(def: GraphicDef): DrawToolDef {
@@ -141,6 +146,7 @@ export function MapEditor({
   const [snap, setSnap] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [symbolQuery, setSymbolQuery] = useState("");
+  const [showRealMap, setShowRealMap] = useState(false);
   const [past, setPast] = useState<MapDocument[]>([]);
   const [future, setFuture] = useState<MapDocument[]>([]);
   const strokeRef = useRef<MapDocument | null>(null);
@@ -459,6 +465,19 @@ export function MapEditor({
     });
   }
 
+  function applyRealGround(dataUrl: string, meters: number) {
+    if (!map) return;
+    const promoted = ensureVectorBase(map);
+    const ref = promoted.underlay?.imageRef ?? `img_${newId()}`;
+    onAsset(ref, dataUrl);
+    commit({
+      ...promoted,
+      underlay: { imageRef: ref, opacity: 1 },
+      scaleBar: { ...promoted.scaleBar, meters },
+    });
+    setShowRealMap(false);
+  }
+
   function chooseDraw(item: DrawToolDef) {
     setDrawId(item.id);
     setTool("draw");
@@ -483,7 +502,7 @@ export function MapEditor({
   const modeHint = placing
     ? "Place — drop on the sheet. Esc cancels."
     : tool === "select"
-      ? "Select — drag the unit picture onto the sheet. Drag to move, corners reshape, handle rotates."
+      ? "Select — drag symbols from the rail onto the sheet. Drag empty ground to pan, wheel zooms. White dots reshape; the square grip scales."
       : tool === "pan"
         ? "Pan — drag the sheet. Wheel zooms. 0 fits."
         : drawTool?.draw === "point"
@@ -543,10 +562,15 @@ export function MapEditor({
             onChange={setAudience}
           />
         </div>
-        <label className="tool-btn studio-upload" title="Trace over a sketch or photo">
-          Tracing image
-          <input type="file" accept="image/*" hidden onChange={(event) => void onUpload(event.target.files)} />
-        </label>
+        <div className="studio-toolbar-group studio-upload">
+          <button type="button" className="tool-btn" title="Use a real map extent as the sheet's base" onClick={() => setShowRealMap(true)}>
+            Real ground
+          </button>
+          <label className="tool-btn" title="Trace over a sketch or photo">
+            Tracing image
+            <input type="file" accept="image/*" hidden onChange={(event) => void onUpload(event.target.files)} />
+          </label>
+        </div>
       </div>
 
       <div className="studio-body">
@@ -694,6 +718,12 @@ export function MapEditor({
 
         <Inspector feature={selected} onPatch={(patch) => patchSelected(patch)} onDelete={deleteSelected} />
       </div>
+
+      {showRealMap ? (
+        <Suspense fallback={null}>
+          <RealMapPicker onUse={applyRealGround} onClose={() => setShowRealMap(false)} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

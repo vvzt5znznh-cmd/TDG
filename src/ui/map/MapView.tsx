@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { Audience, ControlMeasure, GeoGeometry, MapDocument, MapFeature, TerrainFeature, TerrainFeatureKind } from "../../schema/types";
-import { centroid, editableVertices, pointsOf, toSvgPoints } from "../../map/geometry";
+import { centroid, editableVertices, pointsOf, smoothPath, toSvgPoints } from "../../map/geometry";
 import { renderControlMeasure } from "../../map/milstd";
 import { baseFeatures, isRasterUnderlay, syntheticBaseLayer } from "../../map/mapBase";
 import { MAP_HEIGHT, MAP_WIDTH } from "../../map/viewport";
@@ -15,18 +15,19 @@ export const AFFILIATION_COLOR = {
 } as const;
 
 const TERRAIN_PAINT: Record<TerrainFeatureKind, { color: string; fill: string; width: number }> = {
-  contour: { color: "#8a6a40", fill: "#8a6a40", width: 1.5 },
+  contour: { color: "#8a6f4d", fill: "#8a6f4d", width: 1.8 },
   spot_elevation: { color: "#5a4a38", fill: "#5a4a38", width: 2 },
-  mountain: { color: "#7a5c40", fill: "#d3c2a0", width: 2.5 },
-  woods: { color: "#3d4a32", fill: "#5d7a52", width: 2 },
-  water: { color: "#2d4a62", fill: "#6a8fa8", width: 2 },
-  river: { color: "#2d4a62", fill: "#7fa3bc", width: 11 },
-  stream: { color: "#3d647f", fill: "#7fa3bc", width: 3 },
-  wetland: { color: "#2d5a4e", fill: "#6a9a88", width: 2 },
-  built_up: { color: "#5a5248", fill: "#b8aea0", width: 2 },
-  road: { color: "#4a4038", fill: "#c9b088", width: 10 },
-  trail: { color: "#6b5344", fill: "#6b5344", width: 3.5 },
-  bridge: { color: "#4a4038", fill: "#efe9d6", width: 10 },
+  mountain: { color: "#7a6247", fill: "#7a6247", width: 2 },
+  woods: { color: "#6f9455", fill: "#89ab6d", width: 1.5 },
+  water: { color: "#4a7a99", fill: "#9dbfd4", width: 2.5 },
+  river: { color: "#5b8fae", fill: "#5b8fae", width: 9 },
+  stream: { color: "#5b8fae", fill: "#5b8fae", width: 3.5 },
+  wetland: { color: "#7f9c6b", fill: "#b5cfa4", width: 2 },
+  built_up: { color: "#5a5248", fill: "#cfc4b2", width: 2 },
+  building: { color: "#1b2118", fill: "#1b2118", width: 2 },
+  road: { color: "#1b2118", fill: "#1b2118", width: 7 },
+  trail: { color: "#1b2118", fill: "#1b2118", width: 2.5 },
+  bridge: { color: "#1b2118", fill: "#1b2118", width: 5 },
   custom: { color: "#3e4c34", fill: "#3e4c34", width: 2 },
 };
 
@@ -84,17 +85,46 @@ export function ControlMeasureShape({
   );
 }
 
-/** Shrink a ring toward its centroid — cheap nested contour lines for hills. */
+/** Shrink a ring toward its centroid — nested contour lines for hills. */
 function innerRing(pts: [number, number][], factor: number): [number, number][] {
   const [cx, cy] = centroid(pts);
   return pts.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
 }
 
-/** Ground drawn like a paper map: cased roads, contoured hills, hatched towns. */
+/** The ")(" abutment flares at both ends of a bridge deck. */
+function bridgeFlares(pts: [number, number][]): ReactElement[] {
+  const flares: ReactElement[] = [];
+  const ends: [number, number][][] = [
+    [pts[0]!, pts[1]!],
+    [pts[pts.length - 1]!, pts[pts.length - 2]!],
+  ];
+  ends.forEach(([end, inner], endIndex) => {
+    const angle = Math.atan2(inner[1] - end[1], inner[0] - end[0]);
+    for (const side of [1, -1]) {
+      const flare = angle + side * (Math.PI * 3) / 4;
+      flares.push(
+        <line
+          key={`${endIndex}-${side}`}
+          x1={end[0]}
+          y1={end[1]}
+          x2={end[0] + 13 * Math.cos(flare)}
+          y2={end[1] + 13 * Math.sin(flare)}
+          stroke="#1b2118"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+        />,
+      );
+    }
+  });
+  return flares;
+}
+
+/** Ground drawn like a photocopied TDG sheet: stippled woods, dashed contours, bold black roads. */
 function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFeature; highlight?: boolean; loadBearing?: boolean }) {
   const pts = pointsOf(feature.geometry);
   if (pts.length === 0) return null;
   const paint = terrainPaint(feature.kind, loadBearing, highlight);
+  const emphasis = highlight || loadBearing;
   const label =
     feature.label && pts[0] ? (
       <text x={pts[0][0]} y={pts[0][1] - 8} fontSize={13} fontFamily="serif" fill={paint.color}>
@@ -103,21 +133,19 @@ function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFea
     ) : null;
 
   if (feature.geometry.type === "LineString" && pts.length >= 2) {
-    const line = toSvgPoints(pts);
-    if (feature.kind === "river") {
+    const d = smoothPath(pts);
+    if (feature.kind === "river" || feature.kind === "stream") {
       return (
         <g>
-          <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" strokeLinejoin="round" />
-          <polyline points={line} fill="none" stroke={paint.fill} strokeWidth={paint.width * 0.55} strokeLinecap="round" strokeLinejoin="round" />
+          <path d={d} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" strokeLinejoin="round" />
           {label}
         </g>
       );
     }
-    if (feature.kind === "road" || feature.kind === "bridge") {
+    if (feature.kind === "road") {
       return (
         <g>
-          <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" strokeLinejoin="round" />
-          <polyline points={line} fill="none" stroke={paint.fill} strokeWidth={paint.width * 0.55} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={feature.kind === "bridge" ? "10 6" : undefined} />
+          <path d={d} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" strokeLinejoin="round" />
           {label}
         </g>
       );
@@ -125,14 +153,31 @@ function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFea
     if (feature.kind === "trail") {
       return (
         <g>
-          <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeDasharray="12 9" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={d} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeDasharray="1 9" strokeLinecap="round" strokeLinejoin="round" />
+          {label}
+        </g>
+      );
+    }
+    if (feature.kind === "bridge") {
+      return (
+        <g>
+          <path d={d} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" />
+          {bridgeFlares(pts)}
+          {label}
+        </g>
+      );
+    }
+    if (feature.kind === "contour") {
+      return (
+        <g>
+          <path d={d} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeDasharray="9 6" strokeLinecap="round" />
           {label}
         </g>
       );
     }
     return (
       <g>
-        <polyline points={line} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" />
+        <path d={d} fill="none" stroke={paint.color} strokeWidth={paint.width} strokeLinecap="round" />
         {label}
       </g>
     );
@@ -140,14 +185,28 @@ function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFea
 
   if (feature.geometry.type === "Polygon" && pts.length >= 3) {
     const ring = editableVertices(feature.geometry);
-    if (feature.kind === "mountain") {
+    const d = smoothPath(ring, true);
+    if (feature.kind === "mountain" || feature.kind === "contour") {
       const [cx, cy] = centroid(ring);
       return (
         <g>
-          <polygon points={toSvgPoints(pts)} fill={paint.fill} fillOpacity={0.5} stroke={paint.color} strokeWidth={paint.width} strokeLinejoin="round" />
-          <polygon points={toSvgPoints(innerRing(ring, 0.64))} fill="none" stroke={paint.color} strokeWidth={1.6} strokeLinejoin="round" />
-          <polygon points={toSvgPoints(innerRing(ring, 0.32))} fill="none" stroke={paint.color} strokeWidth={1.6} strokeLinejoin="round" />
-          <polygon points={`${cx},${cy - 8} ${cx + 7},${cy + 5} ${cx - 7},${cy + 5}`} fill={paint.color} />
+          {/* Unfilled dashed contour rings with the hilltop number, like a photocopied map. */}
+          <path d={d} fill="#efe9d6" fillOpacity={emphasis ? 0.5 : 0.01} stroke={paint.color} strokeWidth={paint.width} strokeDasharray="10 5" />
+          <path d={smoothPath(innerRing(ring, 0.62), true)} fill="none" stroke={paint.color} strokeWidth={1.7} strokeDasharray="8 5" />
+          <path d={smoothPath(innerRing(ring, 0.3), true)} fill="none" stroke={paint.color} strokeWidth={1.7} strokeDasharray="6 4" />
+          {feature.label ? (
+            <text x={cx} y={cy + 5} textAnchor="middle" fontSize={15} fontFamily="serif" fontWeight={600} fill="#3c4336">
+              {feature.label}
+            </text>
+          ) : null}
+        </g>
+      );
+    }
+    if (feature.kind === "woods") {
+      return (
+        <g>
+          <path d={d} fill="#89ab6d" fillOpacity={0.16} stroke="none" />
+          <path d={d} fill="url(#tdg-woods)" stroke={emphasis ? "#9a2f2a" : "none"} strokeWidth={2} strokeDasharray="3 6" />
           {label}
         </g>
       );
@@ -155,15 +214,27 @@ function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFea
     if (feature.kind === "built_up") {
       return (
         <g>
-          <polygon points={toSvgPoints(pts)} fill={paint.fill} fillOpacity={0.65} stroke={paint.color} strokeWidth={paint.width} strokeLinejoin="round" />
-          <polygon points={toSvgPoints(pts)} fill="url(#tdg-builtup)" stroke="none" />
+          <path d={d} fill={paint.fill} fillOpacity={0.55} stroke={paint.color} strokeWidth={paint.width} />
+          <path d={d} fill="url(#tdg-builtup)" stroke="none" />
           {label}
+        </g>
+      );
+    }
+    if (feature.kind === "wetland" || feature.kind === "water") {
+      return (
+        <g>
+          <path d={d} fill={paint.fill} fillOpacity={feature.kind === "water" ? 0.75 : 0.85} stroke={paint.color} strokeWidth={paint.width} />
+          {feature.label && pts[0] ? (
+            <text x={pts[0][0]} y={pts[0][1] + 16} fontSize={13} fontFamily="serif" fill="#3c4336">
+              {feature.label}
+            </text>
+          ) : null}
         </g>
       );
     }
     return (
       <g>
-        <polygon points={toSvgPoints(pts)} fill={paint.fill} fillOpacity={0.42} stroke={paint.color} strokeWidth={paint.width} strokeLinejoin="round" />
+        <path d={d} fill={paint.fill} fillOpacity={0.42} stroke={paint.color} strokeWidth={paint.width} />
         {feature.label && pts[0] ? (
           <text x={pts[0][0]} y={pts[0][1] + 16} fontSize={13} fontFamily="serif" fill={paint.color}>
             {feature.label}
@@ -174,6 +245,23 @@ function TerrainShape({ feature, highlight, loadBearing }: { feature: TerrainFea
   }
 
   const [x, y] = pts[0] ?? [0, 0];
+  if (feature.kind === "building") {
+    return (
+      <g>
+        <rect x={x - 7} y={y - 7} width={14} height={14} fill={paint.fill} stroke={emphasis ? "#9a2f2a" : "none"} strokeWidth={2} />
+        {label}
+      </g>
+    );
+  }
+  if (feature.kind === "spot_elevation") {
+    return (
+      <g>
+        <text x={x} y={y + 4} textAnchor="middle" fontSize={13} fontFamily="serif" fill="#3c4336">
+          x {feature.label ?? ""}
+        </text>
+      </g>
+    );
+  }
   return (
     <g>
       <circle cx={x} cy={y} r={7} fill="#fff" stroke={paint.color} strokeWidth={paint.width} />
@@ -341,6 +429,15 @@ export function MapScene({
       <defs>
         <pattern id="tdg-builtup" width="18" height="18" patternUnits="userSpaceOnUse">
           <rect x="3" y="3" width="7" height="7" fill="#5a5248" fillOpacity="0.5" />
+        </pattern>
+        <pattern id="tdg-woods" width="30" height="30" patternUnits="userSpaceOnUse">
+          {/* Irregular stipple like the photocopied vegetation dots on TDG sheets. */}
+          <circle cx="6" cy="7" r="2.6" fill="#6f9455" fillOpacity="0.85" />
+          <circle cx="19" cy="4" r="2.1" fill="#6f9455" fillOpacity="0.7" />
+          <circle cx="26" cy="14" r="2.5" fill="#6f9455" fillOpacity="0.8" />
+          <circle cx="12" cy="18" r="2.9" fill="#6f9455" fillOpacity="0.85" />
+          <circle cx="3" cy="24" r="2" fill="#6f9455" fillOpacity="0.7" />
+          <circle cx="21" cy="26" r="2.6" fill="#6f9455" fillOpacity="0.8" />
         </pattern>
       </defs>
       <rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="#e7e2d1" />

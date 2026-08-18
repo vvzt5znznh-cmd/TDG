@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createMapDocument } from "../schema/create";
 import { addBaseTerrain, ensureLayer, ensureVectorBase, isRasterUnderlay, mapImageRef, paperBackgroundSvg } from "./mapBase";
-import { setVertex } from "./geometry";
+import { scaleGeometry, setVertex, smoothPath } from "./geometry";
 
 describe("editable map base", () => {
   it("promotes a raster base to vector + underlay", () => {
@@ -72,9 +72,41 @@ describe("editable map base", () => {
     expect(mapImageRef(map)).toBe("img_paper");
   });
 
+  it("plans real-map tiles that cover the sheet at a sane zoom", async () => {
+    const { groundWidthMeters, scaleBarMeters, tilePlan } = await import("./realmap");
+    const bounds = { west: 11.0, south: 60.3, east: 11.3, north: 60.5 };
+    const tiles = tilePlan(bounds);
+    expect(tiles.length).toBeGreaterThan(0);
+    expect(tiles.length).toBeLessThanOrEqual(130);
+    const z = tiles[0]!.z;
+    expect(tiles.every((tile) => tile.z === z)).toBe(true);
+    // Tiles must blanket the sheet: leftmost tile starts at or before x=0.
+    expect(Math.min(...tiles.map((t) => t.px))).toBeLessThanOrEqual(0);
+    expect(Math.max(...tiles.map((t) => t.px + t.size))).toBeGreaterThanOrEqual(1600);
+    // ~0.3° of longitude at 60°N is ~16.7 km; the scale bar rounds to 1/2/5.
+    const width = groundWidthMeters(bounds);
+    expect(width).toBeGreaterThan(15000);
+    expect(width).toBeLessThan(18000);
+    expect([1000, 2000]).toContain(scaleBarMeters(width));
+  });
+
+  it("smooths clicked points into a curve and keeps closed rings closed", () => {
+    const open = smoothPath([[0, 0], [100, 40], [200, 0]]);
+    expect(open.startsWith("M 0 0 C")).toBe(true);
+    expect(open).not.toContain("Z");
+    const closed = smoothPath([[0, 0], [100, 0], [100, 100], [0, 100]], true);
+    expect(closed.endsWith("Z")).toBe(true);
+    expect(smoothPath([[0, 0], [50, 50]])).toBe("M 0 0 L 50 50");
+  });
+
+  it("scales control points about a fixed center", () => {
+    const scaled = scaleGeometry({ type: "LineString", coordinates: [[100, 100], [200, 100]] }, 2, [100, 100]);
+    expect(scaled).toEqual({ type: "LineString", coordinates: [[100, 100], [300, 100]] });
+  });
+
   it("accepts the new terrain kinds in the file schema", async () => {
     const { mapFeatureSchema } = await import("../schema/zod");
-    for (const kind of ["mountain", "river", "stream"]) {
+    for (const kind of ["mountain", "river", "stream", "building"]) {
       const parsed = mapFeatureSchema.safeParse({
         featureType: "terrain",
         id: `t_${kind}`,

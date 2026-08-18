@@ -125,6 +125,7 @@ const terrainKindSchema = z.enum([
   "stream",
   "wetland",
   "built_up",
+  "building",
   "road",
   "trail",
   "bridge",

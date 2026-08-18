@@ -1047,6 +1047,56 @@ svg.map-canvas {
   cursor: nwse-resize;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 33, 24, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.modal-panel {
+  background: var(--paper);
+  border: 2px solid var(--rule);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.realmap-panel {
+  width: min(88vw, 940px);
+}
+
+.realmap-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.realmap-map {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--rule);
+  background: #dfe6ea;
+}
+
+.realmap-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.realmap-error {
+  color: var(--err);
+  font-size: 13px;
+}
+
 .lede {
   color: var(--ink-soft);
   max-width: 42em;

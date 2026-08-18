@@ -83,6 +83,7 @@ export type TerrainFeatureKind =
   | "stream"
   | "wetland"
   | "built_up"
+  | "building"
   | "road"
   | "trail"
   | "bridge"
