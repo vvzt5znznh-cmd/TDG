@@ -338,8 +338,8 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
   if (isAxisKind(kind)) return axisDefaults(at);
   if (kind === "dir_atk_main" || kind === "dir_atk_supporting") {
     return [
-      [x, y + 90],
-      [x, y - 140],
+      [x, y + 110],
+      [x, y - 180],
     ];
   }
   if (kind === "support_by_fire") {
@@ -365,11 +365,20 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
       [x, y + 150],
     ];
   }
-  if (spec.min <= 2 && spec.max === 2) {
+  if (spec.max <= 2) {
     return [
-      [x, y],
-      [x + 95, y],
+      [x - 90, y],
+      [x + 90, y],
     ];
+  }
+  if (spec.geometry === "Line") {
+    const count = Math.max(2, spec.min);
+    const pts: [number, number][] = [];
+    for (let i = 0; i < count; i++) {
+      const t = count === 1 ? 0 : i / (count - 1);
+      pts.push([x - 180 + 360 * t, y]);
+    }
+    return pts;
   }
   if (spec.max === 3) {
     return [
@@ -386,10 +395,11 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
       [x + 60, y - 90],
     ];
   }
-  const r = 110;
+  const r = 130;
   const pts: [number, number][] = [];
-  for (let i = 0; i < 5; i++) {
-    const angle = -Math.PI / 2 + (Math.PI * 2 * i) / 5;
+  for (let i = 0; i < Math.max(5, spec.min); i++) {
+    const n = Math.max(5, spec.min);
+    const angle = -Math.PI / 2 + (Math.PI * 2 * i) / n;
     pts.push([Math.round(x + r * Math.cos(angle)), Math.round(y + r * 0.72 * Math.sin(angle))]);
   }
   return pts;

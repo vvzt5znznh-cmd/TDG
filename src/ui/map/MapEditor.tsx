@@ -513,7 +513,7 @@ export function MapEditor({
     : adjust
       ? placeHint(adjust.kind, adjust.step)
       : tool === "select"
-        ? "Select — drag from the rail onto the sheet. Click a graphic to place it, then click to size it. White dots reshape; square scales; circle rotates."
+        ? "Select — drag from the rail onto the sheet. Click a graphic to place it, then click to size it. Dots on the ink reshape; diamond is width; square scales; rotate handle sits above the box."
         : tool === "pan"
           ? "Pan — drag the sheet. Wheel zooms. 0 fits."
           : drawTool?.draw === "point"

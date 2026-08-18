@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeAll, describe, expect, it } from "vitest";
+import { rotateGeometry, scaleGeometry } from "./geometry";
 import {
   GRAPHIC_DEFS,
   applyPlaceAdjust,
@@ -160,5 +161,25 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     expect(next.coordinates).toHaveLength(4);
     expect(vertexRoles("axis_of_advance", 4)).toEqual(["path", "path", "path", "width"]);
     expect(next.coordinates[3]).toEqual(geometry.coordinates[2]);
+  });
+
+  it("drops maneuver lines as two-point lines, not a pentagon", () => {
+    for (const kind of ["phase_line", "flot", "line_of_departure", "limit_of_advance", "cfl"] as const) {
+      const points = defaultPointsAt(kind, [800, 600]);
+      expect(points, kind).toHaveLength(2);
+      expect(Math.hypot(points[1]![0] - points[0]![0], points[1]![1] - points[0]![1]), kind).toBeGreaterThan(200);
+    }
+  });
+
+  it("still renders after scaling and rotating every graphic", () => {
+    for (const def of GRAPHIC_DEFS) {
+      const pts = defaultPointsAt(def.kind, [800, 600]);
+      const geometry = pts.length === 1 ? { type: "Point" as const, coordinates: pts[0]! } : { type: "LineString" as const, coordinates: pts };
+      const scaled = scaleGeometry(geometry, 1.8, [800, 600]);
+      const rotated = rotateGeometry(scaled, 35, [800, 600]);
+      const rendered = renderControlMeasure({ kind: def.kind, geometry: rotated, label: "T1" });
+      expect(rendered, def.kind).not.toBeNull();
+      expect(rendered!.innerSvg.length, def.kind).toBeGreaterThan(20);
+    }
   });
 });

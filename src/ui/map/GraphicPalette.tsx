@@ -14,6 +14,13 @@ const GROUP_LABELS: Record<GraphicGroup, string> = {
 
 const GROUP_ORDER: GraphicGroup[] = ["tasks-action", "tasks-effect", "tasks-security", "maneuver", "areas", "fires"];
 
+function searchable(def: GraphicDef): string {
+  return `${def.label} ${def.kind} ${def.hint} no fire nfz restrictive`
+    .toLowerCase()
+    .replaceAll("-", " ")
+    .replaceAll("_", " ");
+}
+
 function GraphicCard({
   def,
   active,
@@ -48,8 +55,10 @@ export function GraphicPalette({
   onCardPointerDown: (def: GraphicDef, e: React.PointerEvent) => void;
 }) {
   const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
-  const matches = q ? GRAPHIC_DEFS.filter((def) => def.label.toLowerCase().includes(q) || def.kind.includes(q)) : GRAPHIC_DEFS;
+  const q = query.trim().toLowerCase().replaceAll("-", " ").replaceAll("_", " ");
+  const matches = q
+    ? GRAPHIC_DEFS.filter((def) => searchable(def).includes(q))
+    : GRAPHIC_DEFS;
 
   return (
     <div className="graphic-palette">

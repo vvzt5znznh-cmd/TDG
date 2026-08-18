@@ -179,7 +179,7 @@ export function Inspector({
   return (
     <aside className="map-inspector">
       <div className="section-kicker">{kind}</div>
-      {def ? <p className="hint">{def.hint}</p> : null}
+      {def ? <p className="hint">2525D {def.label}.</p> : null}
       {feature.featureType === "control_measure" ? (
         <Field label="Whose">
           <Select

@@ -473,16 +473,16 @@ function VertexHandle({ x, y, r, role }: { x: number; y: number; r: number; role
 
 /** Circular-arrow rotate control at the end of a stem from the box top-center. */
 function RotateHandle({ anchor, handle, r }: { anchor: [number, number]; handle: [number, number]; r: number }) {
-  const size = r * 1.55;
+  const size = r * 1.85;
   return (
     <g className="rotate-handle">
-      <line x1={anchor[0]} y1={anchor[1]} x2={handle[0]} y2={handle[1]} stroke="#9a2f2a" strokeWidth={r / 4} />
-      <circle cx={handle[0]} cy={handle[1]} r={size} fill="#fff" stroke="#9a2f2a" strokeWidth={r / 4} />
+      <line x1={anchor[0]} y1={anchor[1]} x2={handle[0]} y2={handle[1]} stroke="#9a2f2a" strokeWidth={Math.max(1.2, r / 3.5)} />
+      <circle cx={handle[0]} cy={handle[1]} r={size} fill="#fff" stroke="#9a2f2a" strokeWidth={Math.max(1.2, r / 3.5)} />
       <path
-        d={rotateArrowPath(handle[0], handle[1], size * 0.55)}
+        d={rotateArrowPath(handle[0], handle[1], size * 0.58)}
         fill="none"
         stroke="#9a2f2a"
-        strokeWidth={r / 3.2}
+        strokeWidth={Math.max(1.4, r / 2.6)}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -491,11 +491,12 @@ function RotateHandle({ anchor, handle, r }: { anchor: [number, number]; handle:
 }
 
 function rotateArrowPath(cx: number, cy: number, radius: number): string {
-  const start = `${cx + radius * 0.15} ${cy - radius}`;
-  const endX = cx + radius;
-  const endY = cy + radius * 0.15;
-  const head = `M ${endX} ${endY} l ${-radius * 0.42} ${-radius * 0.08} M ${endX} ${endY} l ${-radius * 0.08} ${radius * 0.42}`;
-  return `M ${start} A ${radius} ${radius} 0 1 1 ${endX} ${endY} ${head}`;
+  const sx = cx;
+  const sy = cy - radius;
+  const ex = cx + radius * 0.92;
+  const ey = cy;
+  const arrow = `M ${ex} ${ey} l ${-radius * 0.55} ${-radius * 0.18} M ${ex} ${ey} l ${-radius * 0.18} ${radius * 0.55}`;
+  return `M ${sx} ${sy} A ${radius} ${radius} 0 1 1 ${ex} ${ey} ${arrow}`;
 }
 
 function visibleFeatures(map: MapDocument, audience: Audience | "all"): MapFeature[] {

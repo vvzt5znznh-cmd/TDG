@@ -13,7 +13,10 @@ export function featureHitDistance(feature: MapFeature, point: [number, number])
     if (!rendered) return lineDist;
     const pad = 14;
     const boxDist = distToRect(point, rendered.x - pad, rendered.y - pad, rendered.width + pad * 2, rendered.height + pad * 2);
-    if (boxDist === 0) return Math.min(lineDist, 6);
+    if (boxDist === 0) {
+      const span = Math.hypot(rendered.width, rendered.height);
+      return Math.min(lineDist, 3 + span * 0.015);
+    }
     return Math.min(lineDist, boxDist);
   }
   return geometryHitDistance(feature.geometry, point);
@@ -51,6 +54,7 @@ export function pickFeature(features: MapFeature[], point: [number, number], thr
   let best: MapFeature | null = null;
   let bestDist = Infinity;
   let bestRank = -1;
+  let bestArea = Infinity;
   for (const feature of features) {
     const dist = featureHitDistance(feature, point);
     const limit =
@@ -61,13 +65,33 @@ export function pickFeature(features: MapFeature[], point: [number, number], thr
           : threshold;
     if (dist > limit) continue;
     const rank = feature.featureType === "symbol" ? 3 : feature.featureType === "control_measure" ? 2 : 1;
-    if (rank > bestRank || (rank === bestRank && dist < bestDist)) {
+    const area = featureArea(feature);
+    const closer = dist < bestDist - 0.4;
+    const sameDistSmaller = Math.abs(dist - bestDist) <= 0.4 && area < bestArea;
+    if (rank > bestRank || (rank === bestRank && (closer || sameDistSmaller))) {
       best = feature;
       bestDist = dist;
       bestRank = rank;
+      bestArea = area;
     }
   }
   return best;
+}
+
+function featureArea(feature: MapFeature): number {
+  if (feature.featureType === "symbol") {
+    const size = feature.sizePx ?? 42;
+    return size * size;
+  }
+  if (feature.featureType === "control_measure") {
+    const rendered = renderControlMeasure(feature);
+    if (rendered) return Math.max(1, rendered.width * rendered.height);
+  }
+  const verts = "geometry" in feature ? editableVertices(feature.geometry) : [];
+  if (verts.length < 2) return 1;
+  const xs = verts.map((v) => v[0]);
+  const ys = verts.map((v) => v[1]);
+  return Math.max(1, (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)));
 }
 
 export function pickVertex(feature: MapFeature, point: [number, number], threshold = 12): number | null {
