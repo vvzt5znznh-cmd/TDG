@@ -1,6 +1,6 @@
 import type { Affiliation, Confidence, ControlMeasure, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
 import { editableVertices } from "../../map/geometry";
-import { graphicDef, isSecurityFront, pointSpec, securityLetterSpacing, setSecurityLetterSpacing } from "../../map/milstd";
+import { graphicDef, isSecurityFront, pointSpec, securityLetterSpacing, setSecurityLetterSpacing, SYMBOLOGY_VERSION } from "../../map/milstd";
 import { ECHELON_OPTIONS, echelonFromSidc, functionIdFromSidc, UNIT_CATALOG } from "../../map/sidc";
 import { ColorInput, CommitTextInput, Field, NumberInput, Select } from "../fields";
 
@@ -179,7 +179,7 @@ export function Inspector({
   return (
     <aside className="map-inspector">
       <div className="section-kicker">{kind}</div>
-      {def ? <p className="hint">2525D {def.label}.</p> : null}
+      {def ? <p className="hint">{SYMBOLOGY_VERSION === 10 ? "APP-6(D)" : "2525D"} {def.label}.</p> : null}
       {feature.featureType === "control_measure" ? (
         <Field label="Whose">
           <Select

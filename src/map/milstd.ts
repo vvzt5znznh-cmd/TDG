@@ -136,6 +136,9 @@ export function padPoints(kind: ControlMeasureKind, points: [number, number][]):
   return out;
 }
 
+/** APP-6(D) / MIL-STD-2525D. Used for both SIDC version digits and MSLookup. */
+export const SYMBOLOGY_VERSION = 10; // APP-6(D)
+
 const DEF_BY_KIND = new Map(GRAPHIC_DEFS.map((def) => [def.kind, def]));
 
 export function graphicDef(kind: ControlMeasureKind): GraphicDef | undefined {
@@ -152,7 +155,8 @@ const AFFILIATION_IDENTITY: Record<Affiliation, string> = {
 export function sidcFor(kind: ControlMeasureKind, affiliation: Affiliation = "friendly"): string | undefined {
   const def = DEF_BY_KIND.get(kind);
   if (!def) return undefined;
-  return `100${AFFILIATION_IDENTITY[affiliation]}250000${def.entity}0000`;
+  const version = String(SYMBOLOGY_VERSION).padStart(2, "0");
+  return `${version}0${AFFILIATION_IDENTITY[affiliation]}250000${def.entity}0000`;
 }
 
 export interface PointSpec {
@@ -164,7 +168,7 @@ export interface PointSpec {
 export function pointSpec(kind: ControlMeasureKind): PointSpec | null {
   const def = DEF_BY_KIND.get(kind);
   if (!def || !c5) return null;
-  const info = c5.MSLookup.getInstance().getMSLInfo(`25${def.entity}`, c5.SymbolID.Version_2525Dch1);
+  const info = c5.MSLookup.getInstance().getMSLInfo(`25${def.entity}`, SYMBOLOGY_VERSION);
   if (!info) return null;
   const geometryRaw = (info.getGeometry() || "point").toLowerCase();
   const geometry: PointSpec["geometry"] = geometryRaw === "line" ? "Line" : geometryRaw === "area" ? "Area" : "Point";

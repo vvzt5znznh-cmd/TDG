@@ -16,6 +16,7 @@ import {
   securityLetterSpacing,
   setSecurityLetterSpacing,
   sidcFor,
+  SYMBOLOGY_VERSION,
   vertexRoles,
 } from "./milstd";
 
@@ -29,7 +30,9 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
   });
 
   it("every graphic kind resolves to a known symbol with a point spec", () => {
+    const version = String(SYMBOLOGY_VERSION).padStart(2, "0");
     for (const def of GRAPHIC_DEFS) {
+      expect(sidcFor(def.kind)?.slice(0, 2), def.kind).toBe(version);
       expect(sidcFor(def.kind), def.kind).toMatch(/^1003250000\d{6}0000$/);
       const spec = pointSpec(def.kind);
       expect(spec, def.kind).not.toBeNull();
