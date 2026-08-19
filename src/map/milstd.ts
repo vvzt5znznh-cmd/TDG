@@ -1,5 +1,5 @@
 import type { Affiliation, ControlMeasure, ControlMeasureKind, GeoGeometry } from "../schema/types";
-import { addPointOnLongestEdge, editableVertices, insertVertex, longestEdgeIndex, removeVertex, setVertex } from "./geometry";
+import { addPointOnLongestEdge, centroid, editableVertices, insertVertex, longestEdgeIndex, scaleGeometry, setVertex } from "./geometry";
 import { MAP_HEIGHT } from "./viewport";
 
 /**
@@ -64,61 +64,61 @@ export interface GraphicDef {
  * (Control Measure symbol set 25), not transcribed from memory.
  */
 export const GRAPHIC_DEFS: readonly GraphicDef[] = [
-  { kind: "seize", entity: "342300", label: "Seize", group: "tasks-action", hint: "Click the circle’s two sides, then the arrow tail." },
-  { kind: "clear", entity: "340500", label: "Clear", group: "tasks-action", hint: "Click each control point. Space finishes." },
-  { kind: "breach", entity: "340200", label: "Breach", group: "tasks-action", hint: "Click each control point. Space finishes." },
-  { kind: "bypass", entity: "340300", label: "Bypass", group: "tasks-action", hint: "Click each control point. Space finishes." },
-  { kind: "canalize", entity: "340400", label: "Canalize", group: "tasks-action", hint: "Click each control point. Space finishes." },
-  { kind: "penetrate", entity: "341800", label: "Penetrate", group: "tasks-action", hint: "Click each control point. Space finishes." },
-  { kind: "turn", entity: "270504", label: "Turn", group: "tasks-action", hint: "Click each control point. Space finishes." },
-  { kind: "ambush", entity: "141700", label: "Ambush", group: "tasks-action", hint: "Click each control point. Space finishes." },
-  { kind: "occupy", entity: "341700", label: "Occupy", group: "tasks-action", hint: "Click two points across the circle." },
-  { kind: "retain", entity: "151205", label: "Retain", group: "tasks-action", hint: "Click two points across the circle." },
-  { kind: "secure", entity: "342100", label: "Secure", group: "tasks-action", hint: "Click two points across the circle." },
-  { kind: "block", entity: "340100", label: "Block", group: "tasks-effect", hint: "Click each control point. Space finishes." },
-  { kind: "fix", entity: "341100", label: "Fix", group: "tasks-effect", hint: "Click each control point. Space finishes." },
-  { kind: "disrupt", entity: "341000", label: "Disrupt", group: "tasks-effect", hint: "Click each control point. Space finishes." },
+  { kind: "seize", entity: "342300", label: "Seize", group: "tasks-action", hint: "Drop the circle, click to size it, then click the arrow tail." },
+  { kind: "clear", entity: "340500", label: "Clear", group: "tasks-action", hint: "Drop it, then click to set how far the arrows reach." },
+  { kind: "breach", entity: "340200", label: "Breach", group: "tasks-action", hint: "Drop it, then click to set width and depth." },
+  { kind: "bypass", entity: "340300", label: "Bypass", group: "tasks-action", hint: "Drop it, then click to set how far the arms go around." },
+  { kind: "canalize", entity: "340400", label: "Canalize", group: "tasks-action", hint: "Drop it, then click to set the funnel." },
+  { kind: "penetrate", entity: "341800", label: "Penetrate", group: "tasks-action", hint: "Drop it, then click to set how far it drives through." },
+  { kind: "turn", entity: "270504", label: "Turn", group: "tasks-action", hint: "Drop it, then click to set size." },
+  { kind: "ambush", entity: "141700", label: "Ambush", group: "tasks-action", hint: "Drop it, then click to set the arms." },
+  { kind: "occupy", entity: "341700", label: "Occupy", group: "tasks-action", hint: "Drop the circle, then click to scale it." },
+  { kind: "retain", entity: "151205", label: "Retain", group: "tasks-action", hint: "Drop the circle, then click to scale it." },
+  { kind: "secure", entity: "342100", label: "Secure", group: "tasks-action", hint: "Drop the circle, then click to scale it." },
+  { kind: "block", entity: "340100", label: "Block", group: "tasks-effect", hint: "Drop it, then click to set size." },
+  { kind: "fix", entity: "341100", label: "Fix", group: "tasks-effect", hint: "Drop it, then click to set length." },
+  { kind: "disrupt", entity: "341000", label: "Disrupt", group: "tasks-effect", hint: "Drop it, then click to set size." },
   { kind: "destroy", entity: "340900", label: "Destroy", group: "tasks-effect", hint: "Click to place. Drag to move." },
   { kind: "neutralize", entity: "341600", label: "Neutralize", group: "tasks-effect", hint: "Click to place. Drag to move." },
-  { kind: "contain", entity: "151204", label: "Contain", group: "tasks-effect", hint: "Click each control point. Space finishes." },
-  { kind: "isolate", entity: "341500", label: "Isolate", group: "tasks-effect", hint: "Click two points across the circle." },
+  { kind: "contain", entity: "151204", label: "Contain", group: "tasks-effect", hint: "Drop it, then click to set size." },
+  { kind: "isolate", entity: "341500", label: "Isolate", group: "tasks-effect", hint: "Drop the circle, then click to scale it." },
   { kind: "suppress", entity: "342800", label: "Suppress", group: "tasks-effect", hint: "Click to place. Drag to move." },
-  { kind: "screen", entity: "342203", label: "Screen", group: "tasks-security", hint: "Click the front, then the letter grips toward the protected force. Space finishes." },
-  { kind: "guard", entity: "342202", label: "Guard", group: "tasks-security", hint: "Click the front, then the letter grips toward the protected force. Space finishes." },
-  { kind: "cover", entity: "342201", label: "Cover", group: "tasks-security", hint: "Click the front, then the letter grips toward the protected force. Space finishes." },
-  { kind: "support_by_fire", entity: "152100", label: "Support by fire", group: "tasks-security", hint: "Click the firing line, then the arrow tips. Space finishes." },
-  { kind: "attack_by_fire", entity: "152000", label: "Attack by fire", group: "tasks-security", hint: "Click the firing line, then where fire is directed. Space finishes." },
-  { kind: "axis_of_advance", entity: "151403", label: "Axis of advance (main)", group: "maneuver", hint: "Click the tip, then the shaft. Move to set head width; Space finishes." },
-  { kind: "axis_supporting", entity: "151404", label: "Axis of advance (supporting)", group: "maneuver", hint: "Click the tip, then the shaft. Move to set head width; Space finishes." },
-  { kind: "axis_aviation", entity: "151401", label: "Axis of advance (aviation)", group: "maneuver", hint: "Click the tip, then the shaft. Move to set head width; Space finishes." },
-  { kind: "dir_atk_main", entity: "140602", label: "Direction of attack (main)", group: "maneuver", hint: "Click the tail, then the tip." },
-  { kind: "dir_atk_supporting", entity: "140603", label: "Direction of attack (supporting)", group: "maneuver", hint: "Click the tail, then the tip." },
-  { kind: "flot", entity: "140100", label: "FLOT", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "line_of_contact", entity: "140200", label: "Line of contact", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "phase_line", entity: "140300", label: "Phase line", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "feba", entity: "140400", label: "FEBA", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "pdf", entity: "140500", label: "Principal direction of fire", group: "maneuver", hint: "Click the origin, then the fan. Space finishes." },
-  { kind: "limit_of_advance", entity: "140900", label: "Limit of advance", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "line_of_departure", entity: "141000", label: "Line of departure", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "ldlc", entity: "141100", label: "LD/LC", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "boundary", entity: "110100", label: "Boundary", group: "maneuver", hint: "Click along the line. Space or Enter finishes." },
+  { kind: "screen", entity: "342203", label: "Screen", group: "tasks-security", hint: "Drop the front, then click toward the protected force. Inner dots space the letters." },
+  { kind: "guard", entity: "342202", label: "Guard", group: "tasks-security", hint: "Drop the front, then click toward the protected force. Inner dots space the letters." },
+  { kind: "cover", entity: "342201", label: "Cover", group: "tasks-security", hint: "Drop the front, then click toward the protected force. Inner dots space the letters." },
+  { kind: "support_by_fire", entity: "152100", label: "Support by fire", group: "tasks-security", hint: "Drop the firing line, then click where the arrows should point." },
+  { kind: "attack_by_fire", entity: "152000", label: "Attack by fire", group: "tasks-security", hint: "Drop the firing line, then click where fire is directed." },
+  { kind: "axis_of_advance", entity: "151403", label: "Axis of advance (main)", group: "maneuver", hint: "Drop the arrow, then click to set length. The diamond is head width." },
+  { kind: "axis_supporting", entity: "151404", label: "Axis of advance (supporting)", group: "maneuver", hint: "Drop the arrow, then click to set length. The diamond is head width." },
+  { kind: "axis_aviation", entity: "151401", label: "Axis of advance (aviation)", group: "maneuver", hint: "Drop the arrow, then click to set length. The diamond is head width." },
+  { kind: "dir_atk_main", entity: "140602", label: "Direction of attack (main)", group: "maneuver", hint: "Drop the arrow, then click the tip." },
+  { kind: "dir_atk_supporting", entity: "140603", label: "Direction of attack (supporting)", group: "maneuver", hint: "Drop the arrow, then click the tip." },
+  { kind: "flot", entity: "140100", label: "FLOT", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "line_of_contact", entity: "140200", label: "Line of contact", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "phase_line", entity: "140300", label: "Phase line", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "feba", entity: "140400", label: "FEBA", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "pdf", entity: "140500", label: "Principal direction of fire", group: "maneuver", hint: "Drop it, then click to set the fan." },
+  { kind: "limit_of_advance", entity: "140900", label: "Limit of advance", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "line_of_departure", entity: "141000", label: "Line of departure", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "ldlc", entity: "141100", label: "LD/LC", group: "maneuver", hint: "Drop the line, then click to stretch it." },
+  { kind: "boundary", entity: "110100", label: "Boundary", group: "maneuver", hint: "Drop the line, then click to stretch it." },
   { kind: "checkpoint", entity: "130300", label: "Checkpoint", group: "maneuver", hint: "Click to place." },
-  { kind: "objective", entity: "151700", label: "Objective", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "assembly_area", entity: "150200", label: "Assembly area", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "assault_position", entity: "151500", label: "Assault position", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "attack_position", entity: "151600", label: "Attack position", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "engagement_area", entity: "151300", label: "Engagement area", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "battle_position", entity: "151200", label: "Battle position", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "drop_zone", entity: "150600", label: "Drop zone", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "pickup_zone", entity: "150900", label: "Pickup zone", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "lz", entity: "150800", label: "LZ", group: "areas", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "obstacle", entity: "270100", label: "Obstacle belt", group: "areas", hint: "Click the outline. Space or Enter finishes." },
+  { kind: "objective", entity: "151700", label: "Objective", group: "areas", hint: "Drop the area, then click to scale. Drag the dots to reshape." },
+  { kind: "assembly_area", entity: "150200", label: "Assembly area", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "assault_position", entity: "151500", label: "Assault position", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "attack_position", entity: "151600", label: "Attack position", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "engagement_area", entity: "151300", label: "Engagement area", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "battle_position", entity: "151200", label: "Battle position", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "drop_zone", entity: "150600", label: "Drop zone", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "pickup_zone", entity: "150900", label: "Pickup zone", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "lz", entity: "150800", label: "LZ", group: "areas", hint: "Drop the area, then click to scale." },
+  { kind: "obstacle", entity: "270100", label: "Obstacle belt", group: "areas", hint: "Drop the area, then click to scale." },
   { kind: "trp", entity: "160300", label: "TRP", group: "fires", hint: "Click to place." },
-  { kind: "cfl", entity: "260200", label: "CFL", group: "fires", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "fscl", entity: "260100", label: "FSCL", group: "fires", hint: "Click along the line. Space or Enter finishes." },
-  { kind: "nfa", entity: "240301", label: "No-fire area", group: "fires", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "rfa", entity: "240401", label: "Restricted fire area", group: "fires", hint: "Click the outline. Space or Enter finishes." },
-  { kind: "restrictive_fire_line", entity: "260500", label: "Restrictive fire line", group: "fires", hint: "Click along the line. Space or Enter finishes." },
+  { kind: "cfl", entity: "260200", label: "CFL", group: "fires", hint: "Drop the line, then click to stretch it." },
+  { kind: "fscl", entity: "260100", label: "FSCL", group: "fires", hint: "Drop the line, then click to stretch it." },
+  { kind: "nfa", entity: "240301", label: "No-fire area", group: "fires", hint: "Drop the area, then click to scale." },
+  { kind: "rfa", entity: "240401", label: "Restricted fire area", group: "fires", hint: "Drop the area, then click to scale." },
+  { kind: "restrictive_fire_line", entity: "260500", label: "Restrictive fire line", group: "fires", hint: "Drop the line, then click to stretch it." },
 ] as const;
 
 /** Pad drawn points up to the graphic's minimum so a sparse sketch still renders. */
@@ -196,71 +196,14 @@ export function vertexRoles(kind: ControlMeasureKind, count: number): VertexRole
   return Array<VertexRole>(count).fill("path");
 }
 
-/** Head width as a fraction of shaft length. */
-export const AXIS_HEAD_RATIO = 0.18;
-export const AXIS_HEAD_MIN = 0.08;
-export const AXIS_HEAD_MAX = 0.35;
-
-export function polylineLength(pts: [number, number][]): number {
-  let len = 0;
-  for (let i = 0; i < pts.length - 1; i++) len += hypot(pts[i]!, pts[i + 1]!);
-  return len;
-}
-
-function clampHeadRatio(ratio: number): number {
-  return Math.max(AXIS_HEAD_MIN, Math.min(AXIS_HEAD_MAX, ratio));
-}
-
-/** Unit perpendicular to the first shaft segment (tip → next). */
-function axisPerp(shaft: [number, number][]): [number, number] {
-  const tip = shaft[0];
-  const next = shaft[1];
-  if (!tip || !next) return [0, -1];
-  const dx = next[0] - tip[0];
-  const dy = next[1] - tip[1];
-  const len = Math.hypot(dx, dy) || 1;
-  return [-dy / len, dx / len];
-}
-
-export function defaultAxisWidthPoint(shaft: [number, number][], ratio = AXIS_HEAD_RATIO): [number, number] {
-  const tip = shaft[0];
-  if (!tip) return [0, 0];
-  const [px, py] = axisPerp(shaft);
-  const width = clampHeadRatio(ratio) * Math.max(polylineLength(shaft), 1);
-  return [tip[0] + px * width, tip[1] + py * width];
-}
-
-export function axisHeadRatio(shaft: [number, number][], widthPt: [number, number]): number {
-  const tip = shaft[0];
-  if (!tip) return AXIS_HEAD_RATIO;
-  return hypot(tip, widthPt) / Math.max(polylineLength(shaft), 1);
-}
-
-/** Project a click onto the perpendicular through the tip and clamp head size. */
-export function constrainAxisWidthPoint(shaft: [number, number][], click: [number, number]): [number, number] {
-  const tip = shaft[0];
-  if (!tip) return click;
-  const [px, py] = axisPerp(shaft);
-  const signed = (click[0] - tip[0]) * px + (click[1] - tip[1]) * py;
-  const len = Math.max(polylineLength(shaft), 1);
-  const sign = signed < 0 ? -1 : 1;
-  const mag = Math.max(AXIS_HEAD_MIN * len, Math.min(AXIS_HEAD_MAX * len, Math.abs(signed) < 1 ? AXIS_HEAD_RATIO * len : Math.abs(signed)));
-  return [tip[0] + px * mag * sign, tip[1] + py * mag * sign];
-}
-
-export function maintainAxisWidth(geometry: GeoGeometry): GeoGeometry {
-  const verts = editableVertices(geometry);
-  if (verts.length < 3) return geometry;
-  const shaft = verts.slice(0, -1);
-  const width = verts[verts.length - 1]!;
-  return setVertex(geometry, verts.length - 1, constrainAxisWidthPoint(shaft, width));
-}
-
 function axisDefaults(at: [number, number]): [number, number][] {
   const [x, y] = at;
-  const tip: [number, number] = [x + 150, y];
-  const rear: [number, number] = [x - 150, y];
-  return [tip, rear, defaultAxisWidthPoint([tip, rear])];
+  // Axis2: point 1 is the tip, N-1 the rear, N the arrowhead width (off the shaft).
+  return [
+    [x + 140, y],
+    [x - 160, y],
+    [x + 140, y - 50],
+  ];
 }
 
 function securityDefaults(at: [number, number]): [number, number][] {
@@ -382,96 +325,6 @@ export function graphicEdgeCount(kind: ControlMeasureKind, vertCount: number, cl
   return closed ? vertCount : Math.max(0, vertCount - 1);
 }
 
-export function setGraphicVertex(kind: ControlMeasureKind, geometry: GeoGeometry, index: number, point: [number, number]): GeoGeometry {
-  const verts = editableVertices(geometry);
-  if (isAxisKind(kind) && verts.length >= 3) {
-    if (index === verts.length - 1) {
-      return setVertex(geometry, index, constrainAxisWidthPoint(verts.slice(0, -1), point));
-    }
-    return maintainAxisWidth(setVertex(geometry, index, point));
-  }
-  return setVertex(geometry, index, point);
-}
-
-export function canDeleteGraphicPoint(kind: ControlMeasureKind, count: number, index: number): boolean {
-  const spec = pointSpec(kind);
-  const min = spec?.min ?? 1;
-  if (count <= min) return false;
-  if (isAxisKind(kind)) {
-    if (index === count - 1) return false;
-    if (count <= 3) return false;
-  }
-  return index >= 0 && index < count;
-}
-
-export function deleteGraphicPoint(kind: ControlMeasureKind, geometry: GeoGeometry, index: number): GeoGeometry {
-  const verts = editableVertices(geometry);
-  if (!canDeleteGraphicPoint(kind, verts.length, index)) return geometry;
-  const next = removeVertex(geometry, index);
-  return isAxisKind(kind) ? maintainAxisWidth(next) : next;
-}
-
-export function geometryFromPoints(points: [number, number][]): GeoGeometry {
-  if (points.length <= 1) return { type: "Point", coordinates: points[0] ?? [0, 0] };
-  return { type: "LineString", coordinates: points };
-}
-
-/** Live preview points. Axis treats the cursor as head width once two shaft points exist. */
-export function previewPoints(kind: ControlMeasureKind, points: [number, number][], cursor?: [number, number] | null): [number, number][] {
-  if (isAxisKind(kind)) {
-    if (points.length >= 2) {
-      const width = cursor ? constrainAxisWidthPoint(points, cursor) : defaultAxisWidthPoint(points);
-      return [...points, width];
-    }
-    return cursor ? [...points, cursor] : points;
-  }
-  return cursor ? [...points, cursor] : points;
-}
-
-export function canFinishDraw(kind: ControlMeasureKind, count: number): boolean {
-  if (isAxisKind(kind)) return count >= 2;
-  const spec = pointSpec(kind);
-  if (!spec) return count >= 1;
-  return count >= spec.min;
-}
-
-/** True when this click should commit immediately (1-point or fixed-count). */
-export function shouldAutoCommit(kind: ControlMeasureKind, count: number): boolean {
-  if (isAxisKind(kind)) return false;
-  const spec = pointSpec(kind);
-  if (!spec) return count >= 1;
-  if (spec.max === 1) return count >= 1;
-  if (spec.min === spec.max) return count >= spec.min;
-  return count >= spec.max;
-}
-
-export function commitDrawPoints(kind: ControlMeasureKind, points: [number, number][], cursor?: [number, number] | null): [number, number][] {
-  if (isAxisKind(kind)) {
-    const width = cursor ? constrainAxisWidthPoint(points, cursor) : defaultAxisWidthPoint(points);
-    return [...points, width];
-  }
-  return points;
-}
-
-export function drawHint(kind: ControlMeasureKind, count: number): string {
-  const def = graphicDef(kind);
-  const name = def?.label ?? kind;
-  const spec = pointSpec(kind);
-  if (isAxisKind(kind)) {
-    if (count <= 0) return `${name} — click the tip.`;
-    if (count === 1) return `${name} — click the rear of the shaft.`;
-    return `${name} — click more shaft, or Space to finish. Move to set head width.`;
-  }
-  if (!spec || spec.max === 1) return `${name} — click to place.`;
-  if (count <= 0) return `${name} — click the first point. Esc cancels.`;
-  if (spec.min === spec.max) {
-    const left = spec.min - count;
-    return left <= 1 ? `${name} — click the last point.` : `${name} — ${left} more points.`;
-  }
-  if (count < spec.min) return `${name} — ${spec.min - count} more, then Space to finish.`;
-  return `${name} — click more, or Space / Enter to finish.`;
-}
-
 /**
  * Control points a graphic starts with when dropped at `at`. Shapes follow
  * the 2525D draw rules for each point count so drops already look doctrinal.
@@ -552,6 +405,99 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
   return pts;
 }
 
+export type PlaceRecipe = "stamp" | "scale" | "circleThenArrow" | "frontThenEnemy";
+
+export function placeRecipe(kind: ControlMeasureKind): PlaceRecipe {
+  switch (kind) {
+    case "seize":
+      return "circleThenArrow";
+    case "screen":
+    case "guard":
+    case "cover":
+    case "support_by_fire":
+    case "attack_by_fire":
+      return "frontThenEnemy";
+    case "destroy":
+    case "neutralize":
+    case "suppress":
+    case "trp":
+    case "checkpoint":
+      return "stamp";
+    default:
+      return "scale";
+  }
+}
+
+export function placeSteps(recipe: PlaceRecipe): number {
+  if (recipe === "stamp") return 0;
+  if (recipe === "circleThenArrow") return 2;
+  return 1;
+}
+
+export function placeHint(kind: ControlMeasureKind, step: number): string {
+  const def = graphicDef(kind);
+  const name = def?.label ?? kind;
+  const recipe = placeRecipe(kind);
+  if (recipe === "circleThenArrow") {
+    return step === 0 ? `${name} — click to set the circle size.` : `${name} — click the tail of the arrow.`;
+  }
+  if (recipe === "frontThenEnemy") {
+    return kind === "support_by_fire" || kind === "attack_by_fire"
+      ? `${name} — click where the arrows should point.`
+      : `${name} — click toward the protected force.`;
+  }
+  if (recipe === "scale") return `${name} — click to set the size. Esc when it looks right.`;
+  return `${name} — drag to move.`;
+}
+
+/** Apply one adjust-click after a stamp. `step` is 0-based. */
+export function applyPlaceAdjust(kind: ControlMeasureKind, geometry: GeoGeometry, click: [number, number], step: number): GeoGeometry {
+  const recipe = placeRecipe(kind);
+  const verts = editableVertices(geometry);
+  if (verts.length === 0) return geometry;
+
+  if (recipe === "frontThenEnemy") {
+    if (isSecurityFront(kind) && verts.length >= 4) {
+      const spacing = securityLetterSpacing(geometry);
+      const p0 = verts[0]!;
+      const p3 = verts[3]!;
+      const fx = p3[0] - p0[0];
+      const fy = p3[1] - p0[1];
+      const fl = Math.hypot(fx, fy) || 1;
+      const ux = fx / fl;
+      const uy = fy / fl;
+      const half = (spacing * fl) / 2;
+      let next = setVertex(geometry, 1, [click[0] - ux * half, click[1] - uy * half]);
+      next = setVertex(next, 2, [click[0] + ux * half, click[1] + uy * half]);
+      return next;
+    }
+    if (kind === "support_by_fire" && verts.length >= 4) {
+      const a = verts[0]!;
+      const b = verts[1]!;
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const length = Math.max(hypot(click, mid), 8);
+      const dx = click[0] - mid[0];
+      const dy = click[1] - mid[1];
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = (dx / dist) * length;
+      const uy = (dy / dist) * length;
+      let next = setVertex(geometry, 2, [a[0] + ux, a[1] + uy]);
+      next = setVertex(next, 3, [b[0] + ux, b[1] + uy]);
+      return next;
+    }
+    return setVertex(geometry, verts.length - 1, click);
+  }
+
+  if (recipe === "circleThenArrow" && step >= 1) {
+    return setVertex(geometry, verts.length - 1, click);
+  }
+
+  const center = centroid(verts);
+  const radius = Math.max(...verts.map((v) => hypot(center, v)), 8);
+  const nextRadius = Math.max(hypot(center, click), 8);
+  return scaleGeometry(geometry, nextRadius / radius, center);
+}
+
 export interface RenderedGraphic {
   /** Inner SVG markup (already positioned in its own local frame). */
   innerSvg: string;
@@ -577,14 +523,11 @@ function metaNumber(svg: string, tag: string): number | null {
 const cache = new Map<string, RenderedGraphic | null>();
 
 /** Render a control measure through the Army renderer into paper space. */
-export function renderControlMeasure(
-  feature: Pick<ControlMeasure, "kind" | "geometry" | "label" | "affiliation"> & { id?: string },
-): RenderedGraphic | null {
+export function renderControlMeasure(feature: Pick<ControlMeasure, "kind" | "geometry" | "label" | "affiliation">): RenderedGraphic | null {
   if (!c5) return null;
   const sidc = sidcFor(feature.kind, feature.affiliation ?? "friendly");
   if (!sidc) return null;
-  const raw = editableVertices(feature.geometry);
-  const points = feature.id === "ghost" ? raw : padPoints(feature.kind, raw);
+  const points = padPoints(feature.kind, editableVertices(feature.geometry));
   if (points.length === 0) return null;
   const key = `${sidc}|${feature.label}|${points.map((p) => `${p[0]},${p[1]}`).join(";")}`;
   const hit = cache.get(key);
@@ -668,100 +611,16 @@ function parseGeoSvg(svg: string): RenderedGraphic | null {
   };
 }
 
-/** Compact, well-proportioned control points for palette chips. */
-function thumbnailPoints(kind: ControlMeasureKind): [number, number][] {
-  const at: [number, number] = [80, 48];
-  if (isAxisKind(kind)) {
-    const tip: [number, number] = [148, 48];
-    const rear: [number, number] = [12, 48];
-    return [tip, rear, defaultAxisWidthPoint([tip, rear], 0.22)];
-  }
-  if (kind === "dir_atk_main" || kind === "dir_atk_supporting") {
-    return [
-      [18, 48],
-      [142, 48],
-    ];
-  }
-  if (isSecurityFront(kind)) {
-    return [
-      [12, 36],
-      [48, 72],
-      [112, 72],
-      [148, 36],
-    ];
-  }
-  if (kind === "seize") {
-    return [
-      [36, 48],
-      [92, 48],
-      [64, 88],
-    ];
-  }
-  const full = defaultPointsAt(kind, at);
-  if (full.length <= 1) return full;
-  const cx = at[0];
-  const cy = at[1];
-  return full.map(([x, y]) => [cx + (x - cx) * 0.42, cy + (y - cy) * 0.42]);
-}
-
-function svgInkBounds(markup: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
-  const xs: number[] = [];
-  const ys: number[] = [];
-  const add = (x: number, y: number) => {
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      xs.push(x);
-      ys.push(y);
-    }
-  };
-  for (const match of markup.matchAll(/\bpoints="([^"]+)"/g)) {
-    const nums = match[1]!.trim().split(/[\s,]+/).map(Number);
-    for (let i = 0; i + 1 < nums.length; i += 2) add(nums[i]!, nums[i + 1]!);
-  }
-  for (const match of markup.matchAll(/\bd="([^"]+)"/g)) {
-    const nums = [...match[1]!.matchAll(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)].map((item) => Number(item[0]));
-    for (let i = 0; i + 1 < nums.length; i += 2) add(nums[i]!, nums[i + 1]!);
-  }
-  for (const tag of markup.matchAll(/<(?:line|circle|ellipse|rect)[^>]*\/?>/g)) {
-    const attr = (name: string): number | undefined => {
-      const found = tag[0].match(new RegExp(`\\b${name}="([^"]+)"`));
-      return found ? Number(found[1]) : undefined;
-    };
-    const x = attr("x") ?? attr("x1") ?? attr("cx");
-    const y = attr("y") ?? attr("y1") ?? attr("cy");
-    if (x != null && y != null) add(x, y);
-    const x2 = attr("x2");
-    const y2 = attr("y2");
-    if (x2 != null && y2 != null) add(x2, y2);
-    const r = attr("r") ?? attr("rx");
-    if (x != null && y != null && r != null) {
-      add(x - r, y - r);
-      add(x + r, y + r);
-    }
-    const w = attr("width");
-    const h = attr("height");
-    if (x != null && y != null && w != null && h != null) add(x + w, y + h);
-  }
-  if (xs.length === 0) return null;
-  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
-}
-
 /** Standalone SVG data URL for palette thumbnails — the real graphic, not an icon. */
 export function graphicThumbnail(kind: ControlMeasureKind): { href: string; width: number; height: number } | null {
   if (!c5) return null;
-  const points = thumbnailPoints(kind);
-  const geometry = geometryFromPoints(points);
-  const rendered = renderControlMeasure({ kind, geometry, label: "", affiliation: "friendly" });
+  const center: [number, number] = [800, 600];
+  const rendered = renderControlMeasure({ kind, geometry: { type: "LineString", coordinates: defaultPointsAt(kind, center) }, label: "" });
   if (!rendered) return null;
-  const ink = svgInkBounds(rendered.innerSvg);
-  const pad = 6;
-  const minX = ink ? ink.minX - pad : -pad;
-  const minY = ink ? ink.minY - pad : -pad;
-  const width = Math.max(8, (ink ? ink.maxX - ink.minX : rendered.width) + pad * 2);
-  const height = Math.max(8, (ink ? ink.maxY - ink.minY : rendered.height) + pad * 2);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${minX} ${minY} ${width} ${height}" preserveAspectRatio="xMidYMid meet">${rendered.innerSvg}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${rendered.width}" height="${rendered.height}" viewBox="0 0 ${rendered.width} ${rendered.height}">${rendered.innerSvg}</svg>`;
   return {
     href: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
-    width,
-    height,
+    width: rendered.width,
+    height: rendered.height,
   };
 }

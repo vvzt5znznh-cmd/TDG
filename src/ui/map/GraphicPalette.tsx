@@ -36,10 +36,10 @@ function GraphicCard({
     <button
       type="button"
       className={`graphic-card${active ? " is-active" : ""}`}
-      title={`${def.label} — ${def.hint} Click control points on the sheet; Space finishes.`}
+      title={`${def.label} — ${def.hint} Drag onto the sheet, or click then click the sheet.`}
       onPointerDown={(e) => onPointerDown(def, e)}
     >
-      <span className={`graphic-card-art${def.kind === "turn" ? " is-mono" : ""}`}>
+      <span className="graphic-card-art">
         {thumb ? <img src={thumb.href} alt="" draggable={false} /> : <span className="graphic-card-loading">…</span>}
       </span>
       <span className="graphic-card-name">{def.label}</span>

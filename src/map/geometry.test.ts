@@ -4,7 +4,6 @@ import {
   distToRect,
   insertVertex,
   nestedRings,
-  removeVertex,
   rotateGeometry,
   rotateHandleFromBbox,
   rotateHandlePoint,
@@ -38,13 +37,6 @@ describe("insertVertex", () => {
     if (next.type !== "LineString") throw new Error("line");
     expect(next.coordinates).toHaveLength(4);
     expect(next.coordinates[2]).toEqual([55, 0]);
-  });
-
-  it("removes a line vertex but not below two points", () => {
-    const geometry: GeoGeometry = { type: "LineString", coordinates: [[0, 0], [50, 0], [100, 0]] };
-    const next = removeVertex(geometry, 1);
-    expect(next).toEqual({ type: "LineString", coordinates: [[0, 0], [100, 0]] });
-    expect(removeVertex(next, 0)).toEqual(next);
   });
 });
 

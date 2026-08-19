@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { readFileAsDataUrl } from "../../io/files";
-import { addPointOnLongestEdge, editableVertices, geometryCentroid, insertVertex, removeVertex, rotateGeometry, setVertex } from "../../map/geometry";
+import { addPointOnLongestEdge, editableVertices, geometryCentroid, insertVertex, rotateGeometry, scaleGeometry, setVertex } from "../../map/geometry";
 import {
   addBaseTerrain,
   allGroundAndOverlayFeatures,
@@ -12,18 +12,13 @@ import {
   patchFeature,
 } from "../../map/mapBase";
 import {
-  canDeleteGraphicPoint,
-  canFinishDraw,
-  commitDrawPoints,
-  deleteGraphicPoint,
-  drawHint,
-  geometryFromPoints,
+  applyPlaceAdjust,
+  defaultPointsAt,
   insertGraphicPoint,
-  maintainAxisWidth,
+  placeHint,
+  placeRecipe,
+  placeSteps,
   pointSpec,
-  previewPoints,
-  setGraphicVertex,
-  shouldAutoCommit,
 } from "../../map/milstd";
 import { withSyncedSidc } from "../../map/sidc";
 import { createSymbolFromStamp, layerRoleForAffiliation, type UnitStamp } from "../../map/stamp";
@@ -41,6 +36,7 @@ import type {
   ControlMeasure,
   ControlMeasureKind,
   Echelon,
+  GeoGeometry,
   MapDocument,
   MapFeature,
   MapUnderlay,
@@ -146,8 +142,7 @@ export function MapEditor({
   const [showRealMap, setShowRealMap] = useState(false);
   const [openDock, setOpenDock] = useState<"ground" | "units" | "graphics" | "sheet" | null>("graphics");
   const [armed, setArmed] = useState<PlacePayload | null>(null);
-  const [drawSession, setDrawSession] = useState<{ kind: ControlMeasureKind; points: [number, number][] } | null>(null);
-  const [insertMode, setInsertMode] = useState(false);
+  const [adjust, setAdjust] = useState<{ id: string; kind: ControlMeasureKind; step: number } | null>(null);
   const [past, setPast] = useState<MapDocument[]>([]);
   const [future, setFuture] = useState<MapDocument[]>([]);
   const strokeRef = useRef<MapDocument | null>(null);
@@ -164,10 +159,6 @@ export function MapEditor({
   audienceRef.current = audience;
   const armedRef = useRef(armed);
   armedRef.current = armed;
-  const drawSessionRef = useRef(drawSession);
-  drawSessionRef.current = drawSession;
-  const drawCursorRef = useRef<[number, number] | null>(null);
-  const skipSheetClickRef = useRef(false);
   const placeSessionRef = useRef<{ cancelled: boolean } | null>(null);
   const coordListenerRef = useRef<((pt: [number, number] | null) => void) | null>(null);
   const registerCoord = useCallback((fn: (pt: [number, number] | null) => void) => {
@@ -187,31 +178,15 @@ export function MapEditor({
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         cancelPlace();
-        setDrawSession(null);
+        setAdjust(null);
         setDraft([]);
         setTool("select");
         setDrawId(null);
-        setInsertMode(false);
-        return;
-      }
-      if (event.key === " " && drawSessionRef.current && notTyping(event)) {
-        event.preventDefault();
-        if (canFinishDraw(drawSessionRef.current.kind, drawSessionRef.current.points.length)) finishDrawSession();
-        return;
-      }
-      if (event.key === "Enter" && drawSessionRef.current && notTyping(event) && canFinishDraw(drawSessionRef.current.kind, drawSessionRef.current.points.length)) {
-        event.preventDefault();
-        finishDrawSession();
         return;
       }
       if (event.key === "Enter" && draft.length > 0) {
         event.preventDefault();
         finishDraft();
-        return;
-      }
-      if (event.key === "Insert" && notTyping(event)) {
-        event.preventDefault();
-        setInsertMode((v) => !v);
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) {
@@ -241,35 +216,28 @@ export function MapEditor({
   }, [selectedId, map, draft, past, future]);
 
   useEffect(() => {
-    if (!placing && !drawSession) {
+    if (!placing) {
       setGhost(null);
       return;
     }
     function onMove(ev: PointerEvent) {
+      const payload = armedRef.current;
+      if (!payload) return;
       if (!clientOnSheet(ev)) {
-        if (!drawSessionRef.current) setGhost(null);
+        setGhost(null);
         return;
       }
       const point = mapPointFromClient(ev);
       if (!point) {
-        if (!drawSessionRef.current) setGhost(null);
+        setGhost(null);
         return;
       }
-      const snapped = snapPoint(point);
-      const session = drawSessionRef.current;
-      if (session) {
-        drawCursorRef.current = snapped;
-        setGhost(ghostFromDraw(session, snapped));
-        return;
-      }
-      const payload = armedRef.current;
-      if (!payload) return;
-      setGhost(ghostAt(payload, snapped));
+      setGhost(ghostAt(payload, snapPoint(point)));
     }
     window.addEventListener("pointermove", onMove);
     return () => window.removeEventListener("pointermove", onMove);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placing, drawSession]);
+  }, [placing]);
 
   const selected = map ? allGroundAndOverlayFeatures(map).find((feature) => feature.id === selectedId) : undefined;
   const imageRef = map ? mapImageRef(map) ?? "" : "";
@@ -341,34 +309,35 @@ export function MapEditor({
     return clientToMapFromSvg(svg, client, viewportRef.current);
   }
 
+  function graphicGeometryAt(kind: ControlMeasureKind, point: [number, number]): GeoGeometry {
+    const points = defaultPointsAt(kind, point);
+    if (points.length === 1) return { type: "Point", coordinates: points[0]! };
+    return { type: "LineString", coordinates: points };
+  }
+
   function ghostAt(payload: PlacePayload, point: [number, number]): MapFeature {
     if (payload.type === "unit") {
       return { ...createSymbolFromStamp(unitDraftRef.current, point), id: "ghost" };
     }
-    return ghostFromDraw({ kind: payload.kind, points: [] }, point);
-  }
-
-  function ghostFromDraw(session: { kind: ControlMeasureKind; points: [number, number][] }, cursor: [number, number] | null): MapFeature {
-    const pts = previewPoints(session.kind, session.points, cursor);
     const ghostFeature: ControlMeasure = {
       featureType: "control_measure",
       id: "ghost",
-      kind: session.kind,
-      geometry: geometryFromPoints(pts.length > 0 ? pts : cursor ? [cursor] : [[0, 0]]),
+      kind: payload.kind,
+      geometry: graphicGeometryAt(payload.kind, point),
       label: "",
       affiliation: "friendly",
     };
     return ghostFeature;
   }
 
-  function commitGraphic(kind: ControlMeasureKind, points: [number, number][]) {
+  function placeGraphic(kind: ControlMeasureKind, point: [number, number]) {
     const current = mapRef.current;
-    if (!current || points.length === 0) return;
+    if (!current) return;
     const feature: ControlMeasure = {
       featureType: "control_measure",
       id: newId(),
       kind,
-      geometry: geometryFromPoints(points),
+      geometry: graphicGeometryAt(kind, point),
       label: "",
       affiliation: "friendly",
     };
@@ -376,26 +345,9 @@ export function MapEditor({
     setSelectedId(feature.id);
     setTool("select");
     setDrawId(null);
-    setDrawSession(null);
-    setGhost(null);
-    drawCursorRef.current = null;
-  }
-
-  function addDrawPoint(point: [number, number]) {
-    const session = drawSessionRef.current;
-    if (!session) return;
-    const next = [...session.points, point];
-    if (shouldAutoCommit(session.kind, next.length)) {
-      commitGraphic(session.kind, commitDrawPoints(session.kind, next, null));
-      return;
-    }
-    setDrawSession({ kind: session.kind, points: next });
-  }
-
-  function finishDrawSession() {
-    const session = drawSessionRef.current;
-    if (!session || !canFinishDraw(session.kind, session.points.length)) return;
-    commitGraphic(session.kind, commitDrawPoints(session.kind, session.points, drawCursorRef.current));
+    const recipe = placeRecipe(kind);
+    if (placeSteps(recipe) > 0) setAdjust({ id: feature.id, kind, step: 0 });
+    else setAdjust(null);
   }
 
   function finishPlace(payload: PlacePayload, point: [number, number]) {
@@ -403,7 +355,23 @@ export function MapEditor({
     setArmed(null);
     setGhost(null);
     if (payload.type === "unit") placeSymbol(point, unitDraftRef.current);
-    else addDrawPoint(point);
+    else placeGraphic(payload.kind, point);
+  }
+
+  function applyAdjust(point: [number, number]) {
+    if (!adjust) return;
+    const current = mapRef.current;
+    if (!current) return;
+    const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === adjust.id);
+    if (!feature || feature.featureType !== "control_measure") {
+      setAdjust(null);
+      return;
+    }
+    const geometry = applyPlaceAdjust(adjust.kind, feature.geometry, point, adjust.step);
+    commit(patchFeature(current, adjust.id, { geometry }));
+    const nextStep = adjust.step + 1;
+    if (nextStep >= placeSteps(placeRecipe(adjust.kind))) setAdjust(null);
+    else setAdjust({ ...adjust, step: nextStep });
   }
 
   function cancelPlace() {
@@ -412,30 +380,22 @@ export function MapEditor({
     setPlacing(false);
     setArmed(null);
     setGhost(null);
-    setDrawSession(null);
-    drawCursorRef.current = null;
   }
 
   /**
-   * Drag from a palette card: release on the sheet starts (or places) the figure.
-   * A click on the card arms the next sheet click.
+   * Drag from a palette card places where the pointer releases.
+   * A click on the card arms the next sheet click — the graphic is already visible as a ghost.
    */
   function beginPlace(payload: PlacePayload, event: ReactPointerEvent) {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    setAdjust(null);
     setArmed(payload);
+    setPlacing(true);
     setTool("select");
     setDrawId(null);
     setSelectedId(null);
-    setInsertMode(false);
-    if (payload.type === "graphic") {
-      setDrawSession({ kind: payload.kind, points: [] });
-      setPlacing(false);
-    } else {
-      setDrawSession(null);
-      setPlacing(true);
-    }
     const session = { cancelled: false };
     placeSessionRef.current = session;
 
@@ -447,9 +407,7 @@ export function MapEditor({
       if (!clientOnSheet(ev)) return;
       const point = mapPointFromClient(ev);
       if (!point) return;
-      skipSheetClickRef.current = true;
-      if (payload.type === "unit") finishPlace(payload, snapPoint(point));
-      else addDrawPoint(snapPoint(point));
+      finishPlace(payload, snapPoint(point));
     }
 
     function onCancel() {
@@ -551,14 +509,12 @@ export function MapEditor({
     );
   }
 
-  const modeHint = drawSession
-    ? drawHint(drawSession.kind, drawSession.points.length)
-    : placing
-      ? "Place — drop the unit on the sheet. Esc cancels."
+  const modeHint = placing
+    ? "Place — drop on the sheet. Esc cancels."
+    : adjust
+      ? placeHint(adjust.kind, adjust.step)
       : tool === "select"
-        ? insertMode
-          ? "Insert — click a line to add a point. Ins toggles. Shift-click a point to delete."
-          : "Select — click a graphic, then click each control point. Space finishes. Drag the figure to move; drag dots to reshape."
+        ? "Select — drag from the rail onto the sheet. Click a graphic to place it, then click to size it. Dots on the ink reshape; diamond is width; square scales; rotate handle sits above the box."
         : tool === "pan"
           ? "Pan — drag the sheet. Wheel zooms. 0 fits."
           : drawTool?.draw === "point"
@@ -574,9 +530,6 @@ export function MapEditor({
           </button>
           <button type="button" className={`tool-btn ${tool === "pan" ? "is-active" : ""}`} title="Pan (H or Space)" onClick={() => { setTool("pan"); setDrawId(null); }}>
             Pan
-          </button>
-          <button type="button" className={`tool-btn ${insertMode ? "is-on" : ""}`} title="Insert point (Ins)" onClick={() => setInsertMode((v) => !v)}>
-            Insert
           </button>
         </div>
         <div className="studio-toolbar-group">
@@ -684,10 +637,11 @@ export function MapEditor({
           >
             <summary>Tactical graphics</summary>
             <p className="hint unit-tray-lead">
-              Click a graphic, then click its control points on the sheet. Space or Enter finishes. Esc cancels.
+              Drag onto the sheet, or click and then click the sheet. The graphic appears immediately; the next click
+              sizes it.
             </p>
             <GraphicPalette
-              activeKind={drawSession?.kind ?? (armed?.type === "graphic" ? armed.kind : null)}
+              activeKind={armed?.type === "graphic" ? armed.kind : (adjust?.kind ?? null)}
               onCardPointerDown={(def, e) => beginPlace({ type: "graphic", kind: def.kind }, e)}
             />
           </details>
@@ -737,30 +691,25 @@ export function MapEditor({
             tool={tool}
             snap={snap}
             showGrid={showGrid}
-            draftPoints={drawSession ? drawSession.points : draft}
+            draftPoints={draft}
             svgRef={svgRef}
             ghost={ghost}
             placing={placing}
-            drawing={Boolean(drawSession)}
-            insertMode={insertMode}
+            adjusting={Boolean(adjust)}
             onViewport={setViewport}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              if (id !== adjust?.id) setAdjust(null);
+            }}
             onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
             onFinishDraft={finishDraft}
             onHoverPoint={(pt) => coordListenerRef.current?.(pt)}
             onPlaceAt={(point) => {
-              if (skipSheetClickRef.current) {
-                skipSheetClickRef.current = false;
-                return;
-              }
-              if (drawSessionRef.current) {
-                addDrawPoint(point);
-                return;
-              }
               const payload = armedRef.current;
               if (!payload) return;
               finishPlace(payload, point);
             }}
+            onAdjustPoint={applyAdjust}
             onInsertVertex={(id, afterIndex, point) => {
               const current = mapRef.current;
               if (!current) return;
@@ -774,17 +723,6 @@ export function MapEditor({
               }
               commit(patchFeature(current, id, { geometry: insertVertex(feature.geometry, afterIndex, point) }));
             }}
-            onDeleteVertex={(id, index) => {
-              const current = mapRef.current;
-              if (!current) return;
-              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
-              if (!feature || !("geometry" in feature)) return;
-              if (feature.featureType === "control_measure") {
-                commit(patchFeature(current, id, { geometry: deleteGraphicPoint(feature.kind, feature.geometry, index) }));
-                return;
-              }
-              commit(patchFeature(current, id, { geometry: removeVertex(feature.geometry, index) }));
-            }}
             onMove={(id, dx, dy) => {
               const current = mapRef.current;
               if (!current) return;
@@ -795,16 +733,31 @@ export function MapEditor({
               if (!current) return;
               const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
               if (!feature || !("geometry" in feature)) return;
-              const geometry =
-                feature.featureType === "control_measure"
-                  ? setGraphicVertex(feature.kind, feature.geometry, index, [point.coordinates[0], point.coordinates[1]])
-                  : setVertex(feature.geometry, index, point.coordinates);
-              onChange(replaceMap(scenario, patchFeature(current, id, { geometry })));
+              onChange(replaceMap(scenario, patchFeature(current, id, { geometry: setVertex(feature.geometry, index, point.coordinates) })));
             }}
             onRotate={(id, rotationDeg) => {
               const current = mapRef.current;
               if (!current) return;
               onChange(replaceMap(scenario, patchFeature(current, id, { rotationDeg })));
+            }}
+            onRotateDelta={(id, deltaDeg) => {
+              const current = mapRef.current;
+              if (!current) return;
+              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
+              if (!feature || !("geometry" in feature)) return;
+              onChange(
+                replaceMap(
+                  scenario,
+                  patchFeature(current, id, { geometry: rotateGeometry(feature.geometry, deltaDeg, geometryCentroid(feature.geometry)) }),
+                ),
+              );
+            }}
+            onScale={(id, factor, center) => {
+              const current = mapRef.current;
+              if (!current) return;
+              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
+              if (!feature || !("geometry" in feature)) return;
+              onChange(replaceMap(scenario, patchFeature(current, id, { geometry: scaleGeometry(feature.geometry, factor, center) })));
             }}
             onStrokeStart={() => {
               strokeRef.current = mapRef.current ?? null;
@@ -819,16 +772,7 @@ export function MapEditor({
           />
           <div className="studio-status">
             <span className="studio-mode">{modeHint}</span>
-            {drawSession && canFinishDraw(drawSession.kind, drawSession.points.length) ? (
-              <span className="studio-draft-actions">
-                <button type="button" className="tool-btn is-active" onClick={finishDrawSession}>
-                  Finish ({drawSession.points.length})
-                </button>
-                <button type="button" className="tool-btn" onClick={() => cancelPlace()}>
-                  Cancel
-                </button>
-              </span>
-            ) : draft.length > 0 ? (
+            {draft.length > 0 ? (
               <span className="studio-draft-actions">
                 <button type="button" className="tool-btn is-active" onClick={finishDraft}>
                   Finish ({draft.length})
@@ -860,9 +804,7 @@ export function MapEditor({
           onDelete={deleteSelected}
           onRotateBy={(deg) => {
             if (!selected || !("geometry" in selected) || !map) return;
-            let geometry = rotateGeometry(selected.geometry, deg, geometryCentroid(selected.geometry));
-            if (selected.featureType === "control_measure") geometry = maintainAxisWidth(geometry);
-            commit(patchFeature(map, selected.id, { geometry }));
+            commit(patchFeature(map, selected.id, { geometry: rotateGeometry(selected.geometry, deg, geometryCentroid(selected.geometry)) }));
           }}
           onAddPoint={() => {
             if (!selected || !("geometry" in selected) || !map) return;
@@ -874,23 +816,6 @@ export function MapEditor({
               return;
             }
             commit(patchFeature(map, selected.id, { geometry: addPointOnLongestEdge(selected.geometry) }));
-          }}
-          onDeletePoint={() => {
-            if (!selected || !("geometry" in selected) || !map) return;
-            const verts = editableVertices(selected.geometry);
-            if (selected.featureType === "control_measure") {
-              let index = -1;
-              for (let i = verts.length - 1; i >= 0; i--) {
-                if (canDeleteGraphicPoint(selected.kind, verts.length, i)) {
-                  index = i;
-                  break;
-                }
-              }
-              if (index < 0) return;
-              commit(patchFeature(map, selected.id, { geometry: deleteGraphicPoint(selected.kind, selected.geometry, index) }));
-              return;
-            }
-            commit(patchFeature(map, selected.id, { geometry: removeVertex(selected.geometry, verts.length - 1) }));
           }}
         />
       </div>

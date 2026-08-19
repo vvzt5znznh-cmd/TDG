@@ -1,5 +1,6 @@
 import type { GeoGeometry, MapFeature } from "../schema/types";
-import { dist2, distToSegment, editableVertices, pointInRing, pointsOf } from "./geometry";
+import { dist2, distToRect, distToSegment, editableVertices, pointInRing, pointsOf } from "./geometry";
+import { renderControlMeasure } from "./milstd";
 
 export function featureHitDistance(feature: MapFeature, point: [number, number]): number {
   if (feature.featureType === "symbol") {
@@ -7,9 +8,16 @@ export function featureHitDistance(feature: MapFeature, point: [number, number])
     return Math.sqrt(dist2(point, [x, y]));
   }
   if (feature.featureType === "control_measure") {
-    const verts = editableVertices(feature.geometry);
-    if (verts.length >= 3 && pointInRing(point, verts)) return 0;
-    return geometryHitDistance(feature.geometry, point);
+    const lineDist = geometryHitDistance(feature.geometry, point);
+    const rendered = renderControlMeasure(feature);
+    if (!rendered) return lineDist;
+    const pad = 14;
+    const boxDist = distToRect(point, rendered.x - pad, rendered.y - pad, rendered.width + pad * 2, rendered.height + pad * 2);
+    if (boxDist === 0) {
+      const span = Math.hypot(rendered.width, rendered.height);
+      return Math.min(lineDist, 3 + span * 0.015);
+    }
+    return Math.min(lineDist, boxDist);
   }
   return geometryHitDistance(feature.geometry, point);
 }
@@ -52,11 +60,9 @@ export function pickFeature(features: MapFeature[], point: [number, number], thr
     const limit =
       feature.featureType === "symbol"
         ? Math.max(threshold, (feature.sizePx ?? 42) * 0.7)
-        : feature.featureType === "control_measure"
-          ? Math.max(threshold, 22)
-          : feature.featureType === "terrain" && feature.geometry.type === "LineString"
-            ? Math.max(threshold, 24)
-            : threshold;
+        : feature.featureType === "terrain" && feature.geometry.type === "LineString"
+          ? Math.max(threshold, 24)
+          : threshold;
     if (dist > limit) continue;
     const rank = feature.featureType === "symbol" ? 3 : feature.featureType === "control_measure" ? 2 : 1;
     const area = featureArea(feature);
@@ -78,11 +84,8 @@ function featureArea(feature: MapFeature): number {
     return size * size;
   }
   if (feature.featureType === "control_measure") {
-    const verts = editableVertices(feature.geometry);
-    if (verts.length < 2) return 1;
-    const xs = verts.map((v) => v[0]);
-    const ys = verts.map((v) => v[1]);
-    return Math.max(1, (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)));
+    const rendered = renderControlMeasure(feature);
+    if (rendered) return Math.max(1, rendered.width * rendered.height);
   }
   const verts = "geometry" in feature ? editableVertices(feature.geometry) : [];
   if (verts.length < 2) return 1;

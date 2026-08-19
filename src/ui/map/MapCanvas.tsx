@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { editableVertices, nearestEdge, pointerDistance, pointsBBox, rotateHandleFromBbox, type BBox } from "../../map/geometry";
+import { editableVertices, geometryCentroid, nearestEdge, pointerDistance, pointsBBox, rotateHandleFromBbox, scaleHandleFromBbox, type BBox } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
-import { graphicEdgeCount, isAxisKind, vertexRoles, type VertexRole } from "../../map/milstd";
+import { graphicEdgeCount, isAxisKind, renderControlMeasure, vertexRoles, type VertexRole } from "../../map/milstd";
 import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
 import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
 import { FeatureShape, MapScene } from "./MapView";
@@ -14,7 +14,9 @@ type Drag =
   | { kind: "press"; id: string; start: [number, number]; last: [number, number] }
   | { kind: "move"; id: string; last: [number, number] }
   | { kind: "vertex"; index: number }
-  | { kind: "rotate" };
+  | { kind: "rotate" }
+  | { kind: "spin"; center: [number, number]; lastAngle: number }
+  | { kind: "scale"; center: [number, number]; last: [number, number] };
 
 const DRAG_THRESHOLD_PX = 5;
 
@@ -34,8 +36,7 @@ export function MapCanvas({
   svgRef: svgRefProp,
   ghost,
   placing,
-  drawing,
-  insertMode,
+  adjusting,
   onViewport,
   onSelect,
   onClickPoint,
@@ -43,12 +44,14 @@ export function MapCanvas({
   onMove,
   onMoveVertex,
   onRotate,
+  onRotateDelta,
+  onScale,
   onStrokeStart,
   onStrokeEnd,
   onHoverPoint,
   onPlaceAt,
+  onAdjustPoint,
   onInsertVertex,
-  onDeleteVertex,
 }: {
   map: MapDocument;
   imageUrl?: string;
@@ -65,8 +68,7 @@ export function MapCanvas({
   svgRef?: RefObject<SVGSVGElement | null>;
   ghost?: MapFeature | null;
   placing?: boolean;
-  drawing?: boolean;
-  insertMode?: boolean;
+  adjusting?: boolean;
   onViewport: (viewport: Viewport) => void;
   onSelect: (id: string | null) => void;
   onClickPoint: (point: Point) => void;
@@ -74,12 +76,14 @@ export function MapCanvas({
   onMove: (id: string, dx: number, dy: number) => void;
   onMoveVertex: (id: string, index: number, point: Point) => void;
   onRotate: (id: string, rotationDeg: number) => void;
+  onRotateDelta?: (id: string, deltaDeg: number) => void;
+  onScale?: (id: string, factor: number, center: [number, number]) => void;
   onStrokeStart: () => void;
   onStrokeEnd: () => void;
   onHoverPoint?: (point: [number, number] | null) => void;
   onPlaceAt?: (point: [number, number]) => void;
+  onAdjustPoint?: (point: [number, number]) => void;
   onInsertVertex?: (id: string, afterIndex: number, point: [number, number]) => void;
-  onDeleteVertex?: (id: string, index: number) => void;
 }) {
   const localSvgRef = useRef<SVGSVGElement>(null);
   const svgRef = svgRefProp ?? localSvgRef;
@@ -117,7 +121,6 @@ export function MapCanvas({
     }
     function onDown(event: KeyboardEvent) {
       if (event.code !== "Space" || typing(event) || event.repeat) return;
-      if (drawing || placing) return;
       event.preventDefault();
       setSpacePan(true);
     }
@@ -130,7 +133,7 @@ export function MapCanvas({
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
     };
-  }, [drawing, placing]);
+  }, []);
 
   function mapPoint(event: { clientX: number; clientY: number }): [number, number] | null {
     const svg = svgRef.current;
@@ -151,7 +154,7 @@ export function MapCanvas({
   }
 
   function handlePointerDown(event: ReactPointerEvent<SVGSVGElement>) {
-    if (placing || drawing) return;
+    if (placing) return;
     const point = mapPoint(event);
     if (!point) return;
     if (panning || event.button === 1) {
@@ -172,7 +175,25 @@ export function MapCanvas({
         return;
       }
     }
-    if (selected && selected.featureType !== "symbol") {
+    if (selected && selected.featureType !== "symbol" && box) {
+      const { handle: spinAt } = rotateHandleFromBbox(box, 0, mapPx(28));
+      if (onRotateDelta && pointerDistance(point, spinAt) < slop) {
+        onStrokeStart();
+        const [cx, cy] = geometryCentroid(selected.geometry);
+        const lastAngle = (Math.atan2(point[0] - cx, cy - point[1]) * 180) / Math.PI;
+        dragRef.current = { kind: "spin", center: [cx, cy], lastAngle };
+        suppressClickRef.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+      const scaleAt = onScale ? scaleHandleFromBbox(box, mapPx(16)) : null;
+      if (scaleAt && pointerDistance(point, scaleAt) < slop) {
+        onStrokeStart();
+        dragRef.current = { kind: "scale", center: geometryCentroid(selected.geometry), last: point };
+        suppressClickRef.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
       const vertex = pickVertex(selected, point, slop);
       if (vertex != null) {
         onStrokeStart();
@@ -190,7 +211,8 @@ export function MapCanvas({
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
-    if (drawing || placing) return;
+    // During adjust, a click on empty ground sizes the graphic — don't pan.
+    if (adjusting) return;
     dragRef.current = { kind: "pan", lastClient: [event.clientX, event.clientY] };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -198,8 +220,8 @@ export function MapCanvas({
   function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     const hover = mapPoint(event);
     onHoverPoint?.(hover);
-    // Rubber band from the last clicked point while drawing terrain or a graphic.
-    if ((tool === "draw" || drawing) && draftPoints && draftPoints.length > 0 && hover) {
+    // Rubber band from the last clicked point while drawing.
+    if (tool === "draw" && draftPoints && draftPoints.length > 0 && hover) {
       setRubber(maybeSnap(hover));
     } else if (rubber) {
       setRubber(null);
@@ -240,10 +262,27 @@ export function MapCanvas({
       onMoveVertex(selectedId, drag.index, { type: "Point", coordinates: maybeSnap(point) });
       return;
     }
+    if (drag.kind === "scale") {
+      const before = pointerDistance(drag.last, drag.center);
+      const after = pointerDistance(point, drag.center);
+      if (before > 4 && after > 4) {
+        onScale?.(selectedId, after / before, drag.center);
+        drag.last = point;
+      }
+      return;
+    }
     if (drag.kind === "rotate" && selected?.featureType === "symbol") {
       const [sx, sy] = selected.position.coordinates;
       const deg = (Math.atan2(point[0] - sx, sy - point[1]) * 180) / Math.PI;
       onRotate(selectedId, Math.round(deg));
+    }
+    if (drag.kind === "spin") {
+      const deg = (Math.atan2(point[0] - drag.center[0], drag.center[1] - point[1]) * 180) / Math.PI;
+      const delta = deg - drag.lastAngle;
+      if (Math.abs(delta) > 0.2) {
+        onRotateDelta?.(selectedId, delta);
+        drag.lastAngle = deg;
+      }
     }
   }
 
@@ -253,7 +292,7 @@ export function MapCanvas({
     dragRef.current = null;
   }
 
-  function handleClick(event: { clientX: number; clientY: number; altKey?: boolean; shiftKey?: boolean }) {
+  function handleClick(event: { clientX: number; clientY: number; altKey?: boolean }) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
@@ -262,20 +301,13 @@ export function MapCanvas({
     const point = mapPoint(event);
     if (!point) return;
     const snapped = maybeSnap(point);
-    if (placing || drawing) {
+    if (placing) {
       onPlaceAt?.(snapped);
       return;
     }
     if (panning) return;
     if (tool === "select") {
-      if (event.shiftKey && selected && selected.featureType !== "symbol" && onDeleteVertex) {
-        const vertex = pickVertex(selected, point, mapPx(12));
-        if (vertex != null) {
-          onDeleteVertex(selected.id, vertex);
-          return;
-        }
-      }
-      if ((event.altKey || insertMode) && selected && selected.featureType !== "symbol" && onInsertVertex) {
+      if (event.altKey && selected && selected.featureType !== "symbol" && onInsertVertex) {
         const verts = editableVertices(selected.geometry);
         const closed = selected.geometry.type === "Polygon";
         const edgeLimit =
@@ -294,6 +326,10 @@ export function MapCanvas({
           return;
         }
       }
+      if (adjusting) {
+        onAdjustPoint?.(snapped);
+        return;
+      }
       const hit = pickFeature(visibleFeatures(map, audience), snapped, mapPx(12));
       onSelect(hit?.id ?? null);
       return;
@@ -302,12 +338,14 @@ export function MapCanvas({
   }
 
   const handleR = mapPx(6);
-  const handles = selected && selected.featureType !== "symbol" && !drawing ? editableVertices(selected.geometry) : [];
+  const handles = selected && selected.featureType !== "symbol" ? editableVertices(selected.geometry) : [];
   const roles =
     selected?.featureType === "control_measure" ? vertexRoles(selected.kind, handles.length) : handles.map(() => "path" as VertexRole);
-  const box = selected?.featureType === "symbol" ? featureBBox(selected) : null;
-  const symbolSpin = selected?.featureType === "symbol" && box ? rotateHandleFromBbox(box, selected.rotationDeg ?? 0, mapPx(28)) : null;
-  const drawPts = drawing && draftPoints ? draftPoints : [];
+  const box = selected ? featureBBox(selected) : null;
+  const scaleHandle = selected && selected.featureType !== "symbol" && onScale && box ? scaleHandleFromBbox(box, mapPx(16)) : null;
+  const symbolSpin =
+    selected?.featureType === "symbol" && box ? rotateHandleFromBbox(box, selected.rotationDeg ?? 0, mapPx(28)) : null;
+  const geomSpin = selected && selected.featureType !== "symbol" && onRotateDelta && box ? rotateHandleFromBbox(box, 0, mapPx(28)) : null;
 
   return (
     <div className={`map-canvas-frame ${greyscale ? "greyscale" : ""}`}>
@@ -318,7 +356,7 @@ export function MapCanvas({
         preserveAspectRatio="xMidYMid meet"
         style={{
           cursor:
-            cursor ?? (placing || drawing ? "crosshair" : panning ? "grab" : tool === "select" ? "default" : "crosshair"),
+            cursor ?? (placing ? "grabbing" : panning ? "grab" : tool === "select" ? "default" : "crosshair"),
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -344,7 +382,7 @@ export function MapCanvas({
           draftPoints={draftPoints}
           showGrid={showGrid}
         />
-        {(tool === "draw" || drawing) && rubber && draftPoints && draftPoints.length > 0 ? (
+        {tool === "draw" && rubber && draftPoints && draftPoints.length > 0 ? (
           <line
             x1={draftPoints[draftPoints.length - 1]![0]}
             y1={draftPoints[draftPoints.length - 1]![1]}
@@ -361,23 +399,24 @@ export function MapCanvas({
             <FeatureShape feature={ghost} />
           </g>
         ) : null}
-        {drawPts.length > 0 ? (
-          <g className="draw-points" pointerEvents="none">
-            {drawPts.map(([hx, hy], index) => (
-              <g key={index}>
-                <circle cx={hx} cy={hy} r={handleR} fill="#fff" stroke="#9a2f2a" strokeWidth={handleR / 4} />
-                <text x={hx} y={hy - handleR * 1.6} textAnchor="middle" fontSize={handleR * 2.2} fill="#9a2f2a">
-                  {index + 1}
-                </text>
-              </g>
-            ))}
-          </g>
-        ) : null}
-        {tool === "select" && !placing && !drawing ? (
+        {tool === "select" && !placing ? (
           <g className="map-handles" pointerEvents="none">
             {handles.map(([hx, hy], index) => (
               <VertexHandle key={index} x={hx} y={hy} r={handleR} role={roles[index] ?? "path"} />
             ))}
+            {scaleHandle ? (
+              <rect
+                className="scale-handle"
+                x={scaleHandle[0] - handleR}
+                y={scaleHandle[1] - handleR}
+                width={handleR * 2}
+                height={handleR * 2}
+                fill="#fff"
+                stroke="#3e4c34"
+                strokeWidth={handleR / 4}
+              />
+            ) : null}
+            {geomSpin ? <RotateHandle anchor={geomSpin.anchor} handle={geomSpin.handle} r={handleR} /> : null}
             {symbolSpin ? <RotateHandle anchor={symbolSpin.anchor} handle={symbolSpin.handle} r={handleR} /> : null}
           </g>
         ) : null}
@@ -391,6 +430,12 @@ function featureBBox(feature: MapFeature): BBox | null {
     const [cx, cy] = feature.position.coordinates;
     const size = feature.sizePx ?? 42;
     return { x: cx - size / 2, y: cy - size / 2, width: size, height: size };
+  }
+  if (feature.featureType === "control_measure") {
+    const rendered = renderControlMeasure(feature);
+    if (rendered && rendered.width > 4 && rendered.height > 4) {
+      return { x: rendered.x, y: rendered.y, width: rendered.width, height: rendered.height };
+    }
   }
   if (!("geometry" in feature)) return null;
   return pointsBBox(editableVertices(feature.geometry));
@@ -426,25 +471,18 @@ function VertexHandle({ x, y, r, role }: { x: number; y: number; r: number; role
   );
 }
 
-/** Circular-arrow rotate control — the arrow is the handle, not a disc with an icon. */
+/** Circular-arrow rotate control at the end of a stem from the box top-center. */
 function RotateHandle({ anchor, handle, r }: { anchor: [number, number]; handle: [number, number]; r: number }) {
-  const size = r * 2.15;
+  const size = r * 1.85;
   return (
     <g className="rotate-handle">
       <line x1={anchor[0]} y1={anchor[1]} x2={handle[0]} y2={handle[1]} stroke="#9a2f2a" strokeWidth={Math.max(1.2, r / 3.5)} />
+      <circle cx={handle[0]} cy={handle[1]} r={size} fill="#fff" stroke="#9a2f2a" strokeWidth={Math.max(1.2, r / 3.5)} />
       <path
-        d={rotateArrowPath(handle[0], handle[1], size)}
-        fill="none"
-        stroke="#fff"
-        strokeWidth={Math.max(3.2, r)}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d={rotateArrowPath(handle[0], handle[1], size)}
+        d={rotateArrowPath(handle[0], handle[1], size * 0.58)}
         fill="none"
         stroke="#9a2f2a"
-        strokeWidth={Math.max(1.6, r / 2.2)}
+        strokeWidth={Math.max(1.4, r / 2.6)}
         strokeLinecap="round"
         strokeLinejoin="round"
       />

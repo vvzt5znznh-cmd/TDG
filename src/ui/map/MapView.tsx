@@ -41,8 +41,9 @@ function terrainPaint(feature: TerrainFeature, loadBearing?: boolean, highlight?
 
 /**
  * Control measures and tactical mission tasks, drawn by the US Army
- * MIL-STD-2525D renderer from the feature's control points. Selection is the
- * ink itself plus its control-point handles — never a bounding square.
+ * MIL-STD-2525D renderer from the feature's control points. Selection and
+ * load-bearing state are shown as an outline so the doctrinal drawing itself
+ * is never recolored or distorted.
  */
 export function ControlMeasureShape({
   feature,
@@ -65,12 +66,22 @@ export function ControlMeasureShape({
     }
     return <polyline points={toSvgPoints(pts)} fill="none" stroke="#5c5346" strokeWidth={2} strokeDasharray="4 4" />;
   }
-  const [bx, by] = pts[0] ?? [rendered.x, rendered.y];
+  const outline = highlight || loadBearing;
   return (
-    <g className={`milstd-graphic${highlight ? " is-selected" : ""}`}>
+    <g className="milstd-graphic">
       <g transform={`translate(${rendered.x} ${rendered.y})`} dangerouslySetInnerHTML={{ __html: rendered.innerSvg }} />
-      {loadBearing ? (
-        <circle cx={bx} cy={by} r={5} fill="#9a2f2a" stroke="#fff" strokeWidth={1.5} pointerEvents="none" />
+      {outline ? (
+        <rect
+          x={rendered.x - 4}
+          y={rendered.y - 4}
+          width={rendered.width + 8}
+          height={rendered.height + 8}
+          fill="none"
+          stroke="#9a2f2a"
+          strokeWidth={2}
+          strokeDasharray={highlight ? undefined : "6 5"}
+          opacity={0.9}
+        />
       ) : null}
     </g>
   );
