@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppChrome } from "./ui/chrome";
 import { EditorPage } from "./ui/EditorPage";
 import { LibraryPage } from "./ui/LibraryPage";
+import { GraphicsSnapshotPage } from "./ui/map/GraphicsSnapshotPage";
 import { PrintPage } from "./ui/print/PrintPage";
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
           <Route path="/edit" element={<EditorPage />} />
           <Route path="/print/student" element={<PrintPage audience="student" />} />
           <Route path="/print/facilitator" element={<PrintPage audience="facilitator" />} />
+          {import.meta.env.DEV ? <Route path="/dev/graphics" element={<GraphicsSnapshotPage />} /> : null}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppChrome>

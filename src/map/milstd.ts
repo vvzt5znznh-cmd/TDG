@@ -182,8 +182,8 @@ export function isAxisKind(kind: ControlMeasureKind): boolean {
 }
 
 export const DEFAULT_AXIS_WIDTH = 50;
-const MIN_HEAD_PX = 10;
-const MAX_HEAD_RATIO = 0.35;
+export const MIN_HEAD_PX = 10;
+export const MAX_HEAD_RATIO = 0.35;
 
 export function isSecurityFront(kind: ControlMeasureKind): boolean {
   return kind === "screen" || kind === "guard" || kind === "cover";
