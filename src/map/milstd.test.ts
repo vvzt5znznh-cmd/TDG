@@ -182,4 +182,38 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
       expect(rendered!.innerSvg.length, def.kind).toBeGreaterThan(20);
     }
   });
+
+  function renderedAspect(kind: (typeof GRAPHIC_DEFS)[number]["kind"], pts: [number, number][]): number {
+    const r = renderControlMeasure({ kind, geometry: { type: "LineString", coordinates: pts }, label: "" });
+    if (!r || r.height < 1e-6) return Infinity;
+    return Math.max(r.width / r.height, r.height / r.width);
+  }
+
+  it("no graphic drops degenerate", () => {
+    for (const def of GRAPHIC_DEFS) {
+      const aspect = renderedAspect(def.kind, defaultPointsAt(def.kind, [800, 600]));
+      expect(aspect, `${def.kind} drops at ${aspect.toFixed(1)}:1`).toBeLessThan(6);
+    }
+  });
+
+  it("axis graphics never vanish, at any bearing or width", () => {
+    for (const kind of ["axis_of_advance", "axis_supporting", "axis_aviation"] as const) {
+      for (let deg = 0; deg < 180; deg += 5) {
+        for (const width of [20, 50, 100]) {
+          const rad = (deg * Math.PI) / 180;
+          const L = 300;
+          const tip: [number, number] = [800 + Math.cos(rad) * (L / 2), 600 - Math.sin(rad) * (L / 2)];
+          const rear: [number, number] = [800 - Math.cos(rad) * (L / 2), 600 + Math.sin(rad) * (L / 2)];
+          const len = Math.hypot(rear[0] - tip[0], rear[1] - tip[1]) || 1;
+          const nx = -(rear[1] - tip[1]) / len;
+          const ny = (rear[0] - tip[0]) / len;
+          const pts: [number, number][] = [tip, rear, [tip[0] + nx * width, tip[1] + ny * width]];
+          const out = renderControlMeasure({ kind, geometry: { type: "LineString", coordinates: pts }, label: "" });
+          expect(out, `${kind} @ ${deg}deg w=${width}`).not.toBeNull();
+          expect(Number.isFinite(out!.width), `${kind} @ ${deg}deg w=${width}`).toBe(true);
+          expect(Number.isFinite(out!.height), `${kind} @ ${deg}deg w=${width}`).toBe(true);
+        }
+      }
+    }
+  });
 });
