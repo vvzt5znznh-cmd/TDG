@@ -1,6 +1,6 @@
 import type { Affiliation, Confidence, ControlMeasure, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
 import { editableVertices } from "../../map/geometry";
-import { graphicDef, isSecurityFront, pointSpec, securityLetterSpacing, setSecurityLetterSpacing, SYMBOLOGY_VERSION } from "../../map/milstd";
+import { graphicDef, graphicStoredMax, isSecurityFront, securityLetterSpacing, setSecurityLetterSpacing, SYMBOLOGY_VERSION } from "../../map/milstd";
 import { ECHELON_OPTIONS, echelonFromSidc, functionIdFromSidc, UNIT_CATALOG } from "../../map/sidc";
 import { ColorInput, CommitTextInput, Field, NumberInput, Select } from "../fields";
 
@@ -169,12 +169,12 @@ export function Inspector({
   const label = "label" in feature ? feature.label ?? "" : "";
   const def = feature.featureType === "control_measure" ? graphicDef(feature.kind) : undefined;
   const kind = def?.label ?? ("kind" in feature ? feature.kind.replaceAll("_", " ") : feature.featureType);
-  const spec = feature.featureType === "control_measure" ? pointSpec(feature.kind) : null;
   const verts = "geometry" in feature ? editableVertices(feature.geometry).length : 0;
+  const storedMax = feature.featureType === "control_measure" ? graphicStoredMax(feature.kind) : null;
   const canAdd =
     feature.featureType === "control_measure" &&
     feature.geometry.type !== "Point" &&
-    (!spec || verts < spec.max);
+    (!storedMax || verts < storedMax);
 
   return (
     <aside className="map-inspector">

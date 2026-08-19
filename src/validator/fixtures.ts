@@ -205,8 +205,9 @@ export function makeValidScenario(): Scenario {
       featureType: "control_measure",
       id: "feat_axis_main",
       kind: "axis_of_advance",
-      geometry: { type: "LineString", coordinates: [[380, 250], [550, 820], [380, 210]] },
+      geometry: { type: "LineString", coordinates: [[380, 250], [550, 820]] },
       label: "AXIS MAIN",
+      axisWidth: 50,
     },
     {
       featureType: "control_measure",

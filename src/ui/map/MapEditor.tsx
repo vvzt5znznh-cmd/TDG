@@ -13,8 +13,11 @@ import {
 } from "../../map/mapBase";
 import {
   applyPlaceAdjust,
+  DEFAULT_AXIS_WIDTH,
   defaultPointsAt,
+  graphicStoredMax,
   insertGraphicPoint,
+  isAxisKind,
   placeHint,
   placeRecipe,
   placeSteps,
@@ -88,6 +91,16 @@ type PlacePayload = { type: "unit" } | { type: "graphic"; kind: ControlMeasureKi
 
 function replaceMap(scenario: Scenario, map: MapDocument): Scenario {
   return { ...scenario, maps: scenario.maps.map((item) => (item.id === map.id ? map : item)) };
+}
+
+function shaftLength(verts: [number, number][]): number {
+  let length = 0;
+  for (let i = 1; i < verts.length; i++) {
+    const a = verts[i - 1]!;
+    const b = verts[i]!;
+    length += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return length;
 }
 
 function addOverlayFeature(map: MapDocument, layerRole: MapDocument["layers"][number]["role"], feature: MapFeature): MapDocument {
@@ -326,6 +339,7 @@ export function MapEditor({
       geometry: graphicGeometryAt(payload.kind, point),
       label: "",
       affiliation: "friendly",
+      axisWidth: isAxisKind(payload.kind) ? DEFAULT_AXIS_WIDTH : undefined,
     };
     return ghostFeature;
   }
@@ -340,6 +354,7 @@ export function MapEditor({
       geometry: graphicGeometryAt(kind, point),
       label: "",
       affiliation: "friendly",
+      axisWidth: isAxisKind(kind) ? DEFAULT_AXIS_WIDTH : undefined,
     };
     commit(addOverlayFeature(ensureLayer(current, "control_measures"), "control_measures", feature));
     setSelectedId(feature.id);
@@ -368,7 +383,17 @@ export function MapEditor({
       return;
     }
     const geometry = applyPlaceAdjust(adjust.kind, feature.geometry, point, adjust.step);
-    commit(patchFeature(current, adjust.id, { geometry }));
+    const patch: Partial<ControlMeasure> = { geometry };
+    if (isAxisKind(adjust.kind) && placeRecipe(adjust.kind) === "scale") {
+      const before = editableVertices(feature.geometry);
+      const after = editableVertices(geometry);
+      const bLen = shaftLength(before);
+      const aLen = shaftLength(after);
+      if (bLen > 1 && aLen > 1) {
+        patch.axisWidth = (feature.axisWidth ?? DEFAULT_AXIS_WIDTH) * (aLen / bLen);
+      }
+    }
+    commit(patchFeature(current, adjust.id, patch));
     const nextStep = adjust.step + 1;
     if (nextStep >= placeSteps(placeRecipe(adjust.kind))) setAdjust(null);
     else setAdjust({ ...adjust, step: nextStep });
@@ -716,8 +741,8 @@ export function MapEditor({
               const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
               if (!feature || !("geometry" in feature) || feature.geometry.type === "Point") return;
               if (feature.featureType === "control_measure") {
-                const spec = pointSpec(feature.kind);
-                if (spec && editableVertices(feature.geometry).length >= spec.max) return;
+                const max = graphicStoredMax(feature.kind) ?? pointSpec(feature.kind)?.max;
+                if (max && editableVertices(feature.geometry).length >= max) return;
                 commit(patchFeature(current, id, { geometry: insertGraphicPoint(feature.kind, feature.geometry, afterIndex, point) }));
                 return;
               }
@@ -734,6 +759,13 @@ export function MapEditor({
               const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
               if (!feature || !("geometry" in feature)) return;
               onChange(replaceMap(scenario, patchFeature(current, id, { geometry: setVertex(feature.geometry, index, point.coordinates) })));
+            }}
+            onMoveAxisWidth={(id, width) => {
+              const current = mapRef.current;
+              if (!current) return;
+              const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
+              if (!feature || feature.featureType !== "control_measure") return;
+              onChange(replaceMap(scenario, patchFeature(current, id, { axisWidth: width })));
             }}
             onRotate={(id, rotationDeg) => {
               const current = mapRef.current;
@@ -757,7 +789,11 @@ export function MapEditor({
               if (!current) return;
               const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
               if (!feature || !("geometry" in feature)) return;
-              onChange(replaceMap(scenario, patchFeature(current, id, { geometry: scaleGeometry(feature.geometry, factor, center) })));
+              const patch: Partial<ControlMeasure> =
+                feature.featureType === "control_measure" && isAxisKind(feature.kind)
+                  ? { geometry: scaleGeometry(feature.geometry, factor, center), axisWidth: (feature.axisWidth ?? DEFAULT_AXIS_WIDTH) * factor }
+                  : { geometry: scaleGeometry(feature.geometry, factor, center) };
+              onChange(replaceMap(scenario, patchFeature(current, id, patch)));
             }}
             onStrokeStart={() => {
               strokeRef.current = mapRef.current ?? null;
@@ -810,8 +846,8 @@ export function MapEditor({
             if (!selected || !("geometry" in selected) || !map) return;
             if (selected.geometry.type === "Point") return;
             if (selected.featureType === "control_measure") {
-              const spec = pointSpec(selected.kind);
-              if (spec && editableVertices(selected.geometry).length >= spec.max) return;
+              const max = graphicStoredMax(selected.kind) ?? pointSpec(selected.kind)?.max;
+              if (max && editableVertices(selected.geometry).length >= max) return;
               commit(patchFeature(map, selected.id, { geometry: insertGraphicPoint(selected.kind, selected.geometry) }));
               return;
             }

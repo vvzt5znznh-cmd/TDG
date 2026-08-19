@@ -1,5 +1,5 @@
 import type { Affiliation, ControlMeasure, ControlMeasureKind, GeoGeometry } from "../schema/types";
-import { addPointOnLongestEdge, centroid, editableVertices, insertVertex, longestEdgeIndex, scaleGeometry, setVertex } from "./geometry";
+import { addPointOnLongestEdge, centroid, editableVertices, insertVertex, scaleGeometry, setVertex } from "./geometry";
 import { MAP_HEIGHT } from "./viewport";
 
 /**
@@ -181,18 +181,19 @@ export function isAxisKind(kind: ControlMeasureKind): boolean {
   return kind === "axis_of_advance" || kind === "axis_supporting" || kind === "axis_aviation";
 }
 
+export const DEFAULT_AXIS_WIDTH = 50;
+const MIN_HEAD_PX = 10;
+const MAX_HEAD_RATIO = 0.35;
+
 export function isSecurityFront(kind: ControlMeasureKind): boolean {
   return kind === "screen" || kind === "guard" || kind === "cover";
 }
 
 export type VertexRole = "path" | "width" | "protected" | "letter";
 
-/** How each control point should look. Width sits off the ink; letter grips space S/G/C. */
+/** How each stored control point should look. Axis width is a synthetic diamond, not a vertex. */
 export function vertexRoles(kind: ControlMeasureKind, count: number): VertexRole[] {
   if (count <= 0) return [];
-  if (isAxisKind(kind) && count >= 3) {
-    return [...Array<VertexRole>(count - 1).fill("path"), "width"];
-  }
   if (isSecurityFront(kind)) {
     if (count >= 4) return ["path", "letter", "letter", "path"];
     if (count === 3) return ["protected", "path", "path"];
@@ -202,12 +203,68 @@ export function vertexRoles(kind: ControlMeasureKind, count: number): VertexRole
 
 function axisDefaults(at: [number, number]): [number, number][] {
   const [x, y] = at;
-  // Axis2: point 1 is the tip, N-1 the rear, N the arrowhead width (off the shaft).
+  // Stored geometry is the centreline only: tip, then rear. Head width is axisWidth.
   return [
     [x + 140, y],
     [x - 160, y],
-    [x + 140, y - 50],
   ];
+}
+
+function shaftLength(centreline: [number, number][]): number {
+  let length = 0;
+  for (let i = 1; i < centreline.length; i++) {
+    const a = centreline[i - 1]!;
+    const b = centreline[i]!;
+    length += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return length;
+}
+
+export function clampAxisWidth(axisWidth: number | undefined, shaftLen: number): number {
+  const raw = axisWidth ?? DEFAULT_AXIS_WIDTH;
+  const cap = MAX_HEAD_RATIO * shaftLen;
+  return Math.max(MIN_HEAD_PX, Math.min(raw, cap > 0 ? cap : MIN_HEAD_PX));
+}
+
+/** Tip plus unit normal of the first shaft segment, scaled by `widthPx`. */
+export function widthPointFor(centreline: [number, number][], widthPx: number): [number, number] {
+  const tip = centreline[0] ?? [0, 0];
+  const next = centreline[1] ?? [tip[0] + 1, tip[1]];
+  const dx = next[0] - tip[0];
+  const dy = next[1] - tip[1];
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  return [tip[0] + nx * widthPx, tip[1] + ny * widthPx];
+}
+
+/** Centreline plus the synthesised width point the Army renderer expects. */
+export function axisRenderPoints(centreline: [number, number][], axisWidth?: number): [number, number][] {
+  if (centreline.length === 0) return centreline;
+  const padded = padAxisCentreline(centreline);
+  const width = clampAxisWidth(axisWidth, shaftLength(padded));
+  return [...padded, widthPointFor(padded, width)];
+}
+
+export function axisWidthFromHandle(centreline: [number, number][], handle: [number, number]): number {
+  const padded = padAxisCentreline(centreline);
+  const tip = padded[0] ?? [0, 0];
+  const next = padded[1] ?? [tip[0] + 1, tip[1]];
+  const dx = next[0] - tip[0];
+  const dy = next[1] - tip[1];
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  return Math.abs((handle[0] - tip[0]) * nx + (handle[1] - tip[1]) * ny);
+}
+
+function padAxisCentreline(verts: [number, number][]): [number, number][] {
+  if (verts.length === 0) return verts;
+  if (verts.length === 1) {
+    const tip = verts[0]!;
+    return [tip, [tip[0] - 200, tip[1]]];
+  }
+  return verts;
 }
 
 function securityDefaults(at: [number, number]): [number, number][] {
@@ -307,26 +364,25 @@ function upgradeSecurityTo4(geometry: GeoGeometry): GeoGeometry {
   return { type: "LineString", coordinates };
 }
 
-/** Insert a point on the shaft / front — never after an Axis2 width point. */
+/** Insert a point on the shaft / front. Axis stored vertices are all shaft. */
 export function insertGraphicPoint(kind: ControlMeasureKind, geometry: GeoGeometry, afterIndex?: number, at?: [number, number]): GeoGeometry {
   const verts = editableVertices(geometry);
   if (isSecurityFront(kind) && verts.length === 3) return upgradeSecurityTo4(geometry);
-  if (isAxisKind(kind) && verts.length >= 3) {
-    const shaft = verts.slice(0, -1);
-    const edge = afterIndex == null ? longestEdgeIndex(shaft, false) : Math.min(afterIndex, Math.max(0, shaft.length - 2));
-    const a = shaft[Math.max(0, edge)]!;
-    const b = shaft[Math.min(shaft.length - 1, edge + 1)]!;
-    const point = at ?? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    return insertVertex(geometry, edge, point);
-  }
   if (at != null && afterIndex != null) return insertVertex(geometry, afterIndex, at);
   return addPointOnLongestEdge(geometry);
 }
 
-/** Last insertable edge index for alt-click (excludes Axis2 width edge). */
-export function graphicEdgeCount(kind: ControlMeasureKind, vertCount: number, closed: boolean): number {
-  if (isAxisKind(kind) && vertCount >= 3) return vertCount - 2;
+/** Last insertable edge index for alt-click. Axis stored vertices are all shaft. */
+export function graphicEdgeCount(_kind: ControlMeasureKind, vertCount: number, closed: boolean): number {
   return closed ? vertCount : Math.max(0, vertCount - 1);
+}
+
+/** Max stored vertices. Axis renderer max includes the synthesised width point. */
+export function graphicStoredMax(kind: ControlMeasureKind): number | null {
+  const spec = pointSpec(kind);
+  if (!spec) return null;
+  if (isAxisKind(kind)) return Math.max(2, spec.max - 1);
+  return spec.max;
 }
 
 /**
@@ -580,13 +636,15 @@ function renderMultipointWithRetry(
 const cache = new Map<string, RenderedGraphic | null>();
 
 /** Render a control measure through the Army renderer into paper space. */
-export function renderControlMeasure(feature: Pick<ControlMeasure, "kind" | "geometry" | "label" | "affiliation">): RenderedGraphic | null {
+export function renderControlMeasure(feature: Pick<ControlMeasure, "kind" | "geometry" | "label" | "affiliation" | "axisWidth">): RenderedGraphic | null {
   if (!c5) return null;
   const sidc = sidcFor(feature.kind, feature.affiliation ?? "friendly");
   if (!sidc) return null;
-  const points = padPoints(feature.kind, editableVertices(feature.geometry));
+  const verts = editableVertices(feature.geometry);
+  const points = isAxisKind(feature.kind) ? axisRenderPoints(verts, feature.axisWidth) : padPoints(feature.kind, verts);
   if (points.length === 0) return null;
-  const key = `${sidc}|${feature.label}|${points.map((p) => `${p[0]},${p[1]}`).join(";")}`;
+  const axisKey = isAxisKind(feature.kind) ? `|w=${feature.axisWidth ?? DEFAULT_AXIS_WIDTH}` : "";
+  const key = `${sidc}|${feature.label}|${points.map((p) => `${p[0]},${p[1]}`).join(";")}${axisKey}`;
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 

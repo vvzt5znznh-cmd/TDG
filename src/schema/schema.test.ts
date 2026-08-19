@@ -65,6 +65,7 @@ describe("parse and serialize", () => {
       geometry: { type: "LineString", coordinates: [[20, 20], [60, 20], [40, 80]] },
       label: "OBJ A",
       affiliation: "hostile",
+      axisWidth: 42,
     });
     const parsed = parseTDGFileText(serializeTDGFile(file));
     if (!("dilemma" in parsed.content)) throw new Error("expected scenario");
@@ -73,7 +74,7 @@ describe("parse and serialize", () => {
     const hill = next.base.features[0];
     expect(hill).toMatchObject({ stroke: "#aa7744", contourCount: 5, contourInterval: 100, elevation: 400 });
     const cm = next.layers.find((item) => item.role === "control_measures")?.features[0];
-    expect(cm).toMatchObject({ kind: "seize", affiliation: "hostile" });
+    expect(cm).toMatchObject({ kind: "seize", affiliation: "hostile", axisWidth: 42 });
   });
 
   it("creates a vector base with a paper underlay asset", () => {
@@ -137,6 +138,41 @@ describe("migrate", () => {
       futureOnly: { graph: true },
     }) as Record<string, unknown>;
     expect(migrated.futureOnly).toEqual({ graph: true });
+  });
+
+  it("lifts a trailing axis width point into axisWidth", () => {
+    const migrated = migrate({
+      schemaVersion: "1.0.0",
+      content: {
+        maps: [
+          {
+            layers: [
+              {
+                features: [
+                  {
+                    featureType: "control_measure",
+                    kind: "axis_of_advance",
+                    geometry: { type: "LineString", coordinates: [[380, 250], [550, 820], [380, 210]] },
+                    label: "AXIS MAIN",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    }) as {
+      content: {
+        maps: { layers: { features: { geometry: { coordinates: [number, number][] }; axisWidth: number }[] }[] }[];
+      };
+    };
+    const feature = migrated.content.maps[0]!.layers[0]!.features[0]!;
+    expect(feature.geometry.coordinates).toEqual([
+      [380, 250],
+      [550, 820],
+    ]);
+    expect(feature.axisWidth).toBeGreaterThan(5);
+    expect(feature.axisWidth).toBeLessThan(80);
   });
 });
 

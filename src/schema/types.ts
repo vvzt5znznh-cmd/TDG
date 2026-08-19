@@ -412,6 +412,8 @@ export interface ControlMeasure {
   label: string;
   /** Whose graphic this is; drives the 2525D identity digit. Default friendly. */
   affiliation?: Affiliation;
+  /** Axis-of-advance head width in paper pixels. Omitted on non-axis graphics. */
+  axisWidth?: number;
 }
 
 export interface Annotation {

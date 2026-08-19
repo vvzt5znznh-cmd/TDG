@@ -366,6 +366,7 @@ const controlMeasureSchema = z.object({
   geometry: geometrySchema,
   label: z.string(),
   affiliation: affiliationSchema.optional(),
+  axisWidth: z.number().optional(),
 });
 
 const annotationSchema = z.object({

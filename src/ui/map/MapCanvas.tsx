@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { editableVertices, geometryCentroid, nearestEdge, pointerDistance, pointsBBox, rotateHandleFromBbox, scaleHandleFromBbox, type BBox } from "../../map/geometry";
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
-import { graphicEdgeCount, isAxisKind, renderControlMeasure, vertexRoles, type VertexRole } from "../../map/milstd";
+import { axisRenderPoints, axisWidthFromHandle, clampAxisWidth, graphicEdgeCount, isAxisKind, renderControlMeasure, vertexRoles, type VertexRole } from "../../map/milstd";
 import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
-import type { Audience, MapDocument, MapFeature, Point } from "../../schema/types";
+import type { Audience, ControlMeasure, MapDocument, MapFeature, Point } from "../../schema/types";
 import { FeatureShape, MapScene } from "./MapView";
 
 export type MapTool = "select" | "pan" | "draw";
@@ -16,7 +16,8 @@ type Drag =
   | { kind: "vertex"; index: number }
   | { kind: "rotate" }
   | { kind: "spin"; center: [number, number]; lastAngle: number }
-  | { kind: "scale"; center: [number, number]; last: [number, number] };
+  | { kind: "scale"; center: [number, number]; last: [number, number] }
+  | { kind: "axisWidth" };
 
 const DRAG_THRESHOLD_PX = 5;
 
@@ -43,6 +44,7 @@ export function MapCanvas({
   onFinishDraft,
   onMove,
   onMoveVertex,
+  onMoveAxisWidth,
   onRotate,
   onRotateDelta,
   onScale,
@@ -75,6 +77,7 @@ export function MapCanvas({
   onFinishDraft?: () => void;
   onMove: (id: string, dx: number, dy: number) => void;
   onMoveVertex: (id: string, index: number, point: Point) => void;
+  onMoveAxisWidth?: (id: string, width: number) => void;
   onRotate: (id: string, rotationDeg: number) => void;
   onRotateDelta?: (id: string, deltaDeg: number) => void;
   onScale?: (id: string, factor: number, center: [number, number]) => void;
@@ -194,6 +197,16 @@ export function MapCanvas({
         event.currentTarget.setPointerCapture(event.pointerId);
         return;
       }
+      if (selected.featureType === "control_measure" && isAxisKind(selected.kind) && onMoveAxisWidth) {
+        const widthAt = axisWidthHandle(selected);
+        if (widthAt && pointerDistance(point, widthAt) < slop) {
+          onStrokeStart();
+          dragRef.current = { kind: "axisWidth" };
+          suppressClickRef.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          return;
+        }
+      }
       const vertex = pickVertex(selected, point, slop);
       if (vertex != null) {
         onStrokeStart();
@@ -262,6 +275,12 @@ export function MapCanvas({
       onMoveVertex(selectedId, drag.index, { type: "Point", coordinates: maybeSnap(point) });
       return;
     }
+    if (drag.kind === "axisWidth" && selected?.featureType === "control_measure" && onMoveAxisWidth) {
+      const verts = editableVertices(selected.geometry);
+      const raw = axisWidthFromHandle(verts, maybeSnap(point));
+      onMoveAxisWidth(selectedId, clampAxisWidth(raw, shaftLen(verts)));
+      return;
+    }
     if (drag.kind === "scale") {
       const before = pointerDistance(drag.last, drag.center);
       const after = pointerDistance(point, drag.center);
@@ -316,11 +335,7 @@ export function MapCanvas({
             : closed
               ? verts.length
               : verts.length - 1;
-        const edgeVerts =
-          selected.featureType === "control_measure" && isAxisKind(selected.kind)
-            ? verts.slice(0, Math.max(2, verts.length - 1))
-            : verts;
-        const edge = nearestEdge(edgeVerts, point, closed && edgeLimit === verts.length);
+        const edge = nearestEdge(verts, point, closed && edgeLimit === verts.length);
         if (edge && edge.index < edgeLimit && edge.dist < mapPx(18)) {
           onInsertVertex(selected.id, edge.index, maybeSnap(edge.at));
           return;
@@ -341,6 +356,7 @@ export function MapCanvas({
   const handles = selected && selected.featureType !== "symbol" ? editableVertices(selected.geometry) : [];
   const roles =
     selected?.featureType === "control_measure" ? vertexRoles(selected.kind, handles.length) : handles.map(() => "path" as VertexRole);
+  const widthHandle = selected?.featureType === "control_measure" && isAxisKind(selected.kind) ? axisWidthHandle(selected) : null;
   const box = selected ? featureBBox(selected) : null;
   const scaleHandle = selected && selected.featureType !== "symbol" && onScale && box ? scaleHandleFromBbox(box, mapPx(16)) : null;
   const symbolSpin =
@@ -404,6 +420,7 @@ export function MapCanvas({
             {handles.map(([hx, hy], index) => (
               <VertexHandle key={index} x={hx} y={hy} r={handleR} role={roles[index] ?? "path"} />
             ))}
+            {widthHandle ? <VertexHandle key="axis-width" x={widthHandle[0]} y={widthHandle[1]} r={handleR} role="width" /> : null}
             {scaleHandle ? (
               <rect
                 className="scale-handle"
@@ -423,6 +440,23 @@ export function MapCanvas({
       </svg>
     </div>
   );
+}
+
+function axisWidthHandle(feature: ControlMeasure): [number, number] | null {
+  const verts = editableVertices(feature.geometry);
+  if (verts.length === 0) return null;
+  const pts = axisRenderPoints(verts, feature.axisWidth);
+  return pts[pts.length - 1] ?? null;
+}
+
+function shaftLen(verts: [number, number][]): number {
+  let length = 0;
+  for (let i = 1; i < verts.length; i++) {
+    const a = verts[i - 1]!;
+    const b = verts[i]!;
+    length += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return length;
 }
 
 function featureBBox(feature: MapFeature): BBox | null {

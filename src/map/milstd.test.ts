@@ -4,10 +4,13 @@ import { rotateGeometry, scaleGeometry } from "./geometry";
 import {
   GRAPHIC_DEFS,
   applyPlaceAdjust,
+  axisRenderPoints,
+  DEFAULT_AXIS_WIDTH,
   defaultPointsAt,
   ensureMilStd,
   graphicThumbnail,
   insertGraphicPoint,
+  isAxisKind,
   isMilStdReady,
   placeRecipe,
   placeSteps,
@@ -45,8 +48,14 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     for (const def of GRAPHIC_DEFS) {
       const spec = pointSpec(def.kind)!;
       const points = defaultPointsAt(def.kind, [800, 600]);
-      expect(points.length, def.kind).toBeGreaterThanOrEqual(spec.min);
-      expect(points.length, def.kind).toBeLessThanOrEqual(spec.max);
+      if (isAxisKind(def.kind)) {
+        expect(points.length, def.kind).toBeGreaterThanOrEqual(2);
+        expect(axisRenderPoints(points).length, def.kind).toBeGreaterThanOrEqual(spec.min);
+        expect(axisRenderPoints(points).length, def.kind).toBeLessThanOrEqual(spec.max);
+      } else {
+        expect(points.length, def.kind).toBeGreaterThanOrEqual(spec.min);
+        expect(points.length, def.kind).toBeLessThanOrEqual(spec.max);
+      }
     }
   });
 
@@ -143,8 +152,9 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     expect(sidcFor("axis_of_advance")).toBe("10032500001514030000");
     expect(sidcFor("axis_supporting")).toBe("10032500001514040000");
     const axis = defaultPointsAt("axis_of_advance", [800, 600]);
-    expect(axis).toHaveLength(3);
-    expect(vertexRoles("axis_of_advance", 3)).toEqual(["path", "path", "width"]);
+    expect(axis).toHaveLength(2);
+    expect(vertexRoles("axis_of_advance", 2)).toEqual(["path", "path"]);
+    expect(axisRenderPoints(axis, DEFAULT_AXIS_WIDTH)).toHaveLength(3);
   });
 
   it("spaces screen letters by sliding the inner grips along the front", () => {
@@ -156,14 +166,13 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     expect(vertexRoles("screen", 4)).toEqual(["path", "letter", "letter", "path"]);
   });
 
-  it("inserts axis points on the shaft, not after the width handle", () => {
+  it("inserts axis points on the shaft, not as a width vertex", () => {
     const geometry = { type: "LineString" as const, coordinates: defaultPointsAt("axis_of_advance", [800, 600]) };
     const next = insertGraphicPoint("axis_of_advance", geometry);
     expect(next.type).toBe("LineString");
     if (next.type !== "LineString") throw new Error("line");
-    expect(next.coordinates).toHaveLength(4);
-    expect(vertexRoles("axis_of_advance", 4)).toEqual(["path", "path", "path", "width"]);
-    expect(next.coordinates[3]).toEqual(geometry.coordinates[2]);
+    expect(next.coordinates).toHaveLength(3);
+    expect(vertexRoles("axis_of_advance", 3)).toEqual(["path", "path", "path"]);
   });
 
   it("drops maneuver lines as two-point lines, not a pentagon", () => {
@@ -211,15 +220,61 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
           const L = 300;
           const tip: [number, number] = [800 + Math.cos(rad) * (L / 2), 600 - Math.sin(rad) * (L / 2)];
           const rear: [number, number] = [800 - Math.cos(rad) * (L / 2), 600 + Math.sin(rad) * (L / 2)];
-          const len = Math.hypot(rear[0] - tip[0], rear[1] - tip[1]) || 1;
-          const nx = -(rear[1] - tip[1]) / len;
-          const ny = (rear[0] - tip[0]) / len;
-          const pts: [number, number][] = [tip, rear, [tip[0] + nx * width, tip[1] + ny * width]];
-          const out = renderControlMeasure({ kind, geometry: { type: "LineString", coordinates: pts }, label: "" });
+          const out = renderControlMeasure({
+            kind,
+            geometry: { type: "LineString", coordinates: [tip, rear] },
+            label: "",
+            axisWidth: width,
+          });
           expect(out, `${kind} @ ${deg}deg w=${width}`).not.toBeNull();
           expect(Number.isFinite(out!.width), `${kind} @ ${deg}deg w=${width}`).toBe(true);
           expect(Number.isFinite(out!.height), `${kind} @ ${deg}deg w=${width}`).toBe(true);
         }
+      }
+    }
+  });
+
+  it("keeps axis head proportional across shaft lengths", () => {
+    for (const kind of ["axis_of_advance", "axis_supporting", "axis_aviation"] as const) {
+      const short = renderControlMeasure({
+        kind,
+        geometry: { type: "LineString", coordinates: [[800, 600], [1000, 600]] },
+        label: "",
+        axisWidth: 50,
+      });
+      const long = renderControlMeasure({
+        kind,
+        geometry: { type: "LineString", coordinates: [[800, 600], [1600, 600]] },
+        label: "",
+        axisWidth: 50,
+      });
+      expect(short, kind).not.toBeNull();
+      expect(long, kind).not.toBeNull();
+      expect(long!.width, kind).toBeGreaterThan(short!.width * 2);
+      expect(long!.height / short!.height, kind).toBeLessThan(1.6);
+    }
+    const capped = axisRenderPoints([[0, 0], [300, 0]], 400);
+    const widthPt = capped[2]!;
+    expect(Math.hypot(widthPt[0] - 0, widthPt[1] - 0)).toBeCloseTo(300 * 0.35, 5);
+  });
+
+  it("renders every graphic at 0.25×–4× without vanishing", () => {
+    const factors = [0.25, 0.5, 1, 2, 4];
+    for (const def of GRAPHIC_DEFS) {
+      const pts = defaultPointsAt(def.kind, [800, 600]);
+      const base = pts.length === 1 ? { type: "Point" as const, coordinates: pts[0]! } : { type: "LineString" as const, coordinates: pts };
+      for (const factor of factors) {
+        const geometry = scaleGeometry(base, factor, [800, 600]);
+        const rendered = renderControlMeasure({
+          kind: def.kind,
+          geometry,
+          label: "",
+          axisWidth: isAxisKind(def.kind) ? DEFAULT_AXIS_WIDTH * factor : undefined,
+        });
+        expect(rendered, `${def.kind} @ ${factor}×`).not.toBeNull();
+        expect(Number.isFinite(rendered!.width), `${def.kind} @ ${factor}×`).toBe(true);
+        expect(Number.isFinite(rendered!.height), `${def.kind} @ ${factor}×`).toBe(true);
+        expect(rendered!.innerSvg.length, `${def.kind} @ ${factor}×`).toBeGreaterThan(20);
       }
     }
   });
