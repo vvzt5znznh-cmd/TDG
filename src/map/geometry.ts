@@ -134,6 +134,21 @@ export function insertVertex(geometry: GeoGeometry, afterIndex: number, point: P
   return { type: "Polygon", coordinates: [[...verts, first]] };
 }
 
+/** Drop a vertex. Polygons keep a closed ring; lines stay lines. */
+export function removeVertex(geometry: GeoGeometry, index: number): GeoGeometry {
+  if (geometry.type === "Point") return geometry;
+  if (geometry.type === "LineString") {
+    if (geometry.coordinates.length <= 2) return geometry;
+    if (index < 0 || index >= geometry.coordinates.length) return geometry;
+    return { type: "LineString", coordinates: geometry.coordinates.filter((_, i) => i !== index) };
+  }
+  const verts = editableVertices(geometry);
+  if (verts.length <= 3 || index < 0 || index >= verts.length) return geometry;
+  verts.splice(index, 1);
+  const first = verts[0]!;
+  return { type: "Polygon", coordinates: [[...verts, first]] };
+}
+
 export function longestEdgeIndex(pts: [number, number][], closed: boolean): number {
   if (pts.length < 2) return 0;
   const last = closed ? pts.length : pts.length - 1;

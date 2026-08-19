@@ -1059,15 +1059,20 @@ svg.map-canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
+  height: 52px;
   width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .graphic-card-art img {
-  max-height: 44px;
+  max-height: 52px;
   max-width: 100%;
+  object-fit: contain;
   pointer-events: none;
+}
+
+.graphic-card-art.is-mono img {
+  filter: brightness(0);
 }
 
 .graphic-card-loading {
@@ -1079,8 +1084,12 @@ svg.map-canvas {
   text-align: center;
 }
 
-.scale-handle {
-  cursor: nwse-resize;
+.draw-points text {
+  font-family: inherit;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: #fffdf6;
+  stroke-width: 3px;
 }
 
 input[type="range"] {

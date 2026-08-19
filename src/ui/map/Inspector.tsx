@@ -1,6 +1,6 @@
 import type { Affiliation, Confidence, ControlMeasure, MapFeature, MilSymbol, TerrainFeature } from "../../schema/types";
 import { editableVertices } from "../../map/geometry";
-import { graphicDef, isSecurityFront, pointSpec, securityLetterSpacing, setSecurityLetterSpacing } from "../../map/milstd";
+import { graphicDef, isSecurityFront, pointSpec, securityLetterSpacing, setSecurityLetterSpacing, canDeleteGraphicPoint } from "../../map/milstd";
 import { ECHELON_OPTIONS, echelonFromSidc, functionIdFromSidc, UNIT_CATALOG } from "../../map/sidc";
 import { ColorInput, CommitTextInput, Field, NumberInput, Select } from "../fields";
 
@@ -40,12 +40,14 @@ export function Inspector({
   onDelete,
   onRotateBy,
   onAddPoint,
+  onDeletePoint,
 }: {
   feature: MapFeature | undefined;
   onPatch: (patch: (Partial<MilSymbol> & { functionId?: string }) | Partial<TerrainFeature> | Partial<ControlMeasure>) => void;
   onDelete: () => void;
   onRotateBy?: (deg: number) => void;
   onAddPoint?: () => void;
+  onDeletePoint?: () => void;
 }) {
   if (!feature) {
     return (
@@ -106,7 +108,7 @@ export function Inspector({
         <Field label="Size">
           <NumberInput min={20} max={90} value={symbol.sizePx ?? 42} onChange={(sizePx) => onPatch({ sizePx })} />
         </Field>
-        <Field label="Rotate symbol" hint="Spin the icon. Drag the rotate handle above the box.">
+        <Field label="Rotate symbol" hint="Spin the icon. Drag the rotate arrow above the unit.">
           <NumberInput value={Math.round(symbol.rotationDeg ?? 0)} onChange={(rotationDeg) => onPatch({ rotationDeg })} />
         </Field>
         <Field label="Movement" hint="Speed leader on the symbol. 0 means none — this is not rotation.">
@@ -157,8 +159,8 @@ export function Inspector({
             </Field>
           </>
         ) : null}
-        <RotateAndPoints onRotateBy={onRotateBy} onAddPoint={onAddPoint} canAdd={feature.geometry.type !== "Point"} />
-        <p className="hint">Drag to move. Drag the white corners to reshape. Alt-click a line to add a point.</p>
+        <RotateAndPoints onRotateBy={onRotateBy} onAddPoint={onAddPoint} onDeletePoint={onDeletePoint} canAdd={feature.geometry.type !== "Point"} canDelete={editableVertices(feature.geometry).length > 2} />
+        <p className="hint">Drag to move. Drag the white corners to reshape. Alt-click a line to add a point. Shift-click a point to delete.</p>
         <button type="button" className="btn btn-danger" onClick={onDelete}>
           Delete
         </button>
@@ -175,6 +177,11 @@ export function Inspector({
     feature.featureType === "control_measure" &&
     feature.geometry.type !== "Point" &&
     (!spec || verts < spec.max);
+
+  const canDelete =
+    feature.featureType === "control_measure" &&
+    verts > 0 &&
+    Array.from({ length: verts }, (_, i) => i).some((i) => canDeleteGraphicPoint(feature.kind, verts, i));
 
   return (
     <aside className="map-inspector">
@@ -204,10 +211,16 @@ export function Inspector({
           />
         </Field>
       ) : null}
-      <RotateAndPoints onRotateBy={onRotateBy} onAddPoint={canAdd ? onAddPoint : undefined} canAdd={Boolean(canAdd)} />
+      <RotateAndPoints
+        onRotateBy={onRotateBy}
+        onAddPoint={canAdd ? onAddPoint : undefined}
+        onDeletePoint={canDelete ? onDeletePoint : undefined}
+        canAdd={Boolean(canAdd)}
+        canDelete={canDelete}
+      />
       <p className="hint">
         {feature.featureType === "control_measure"
-          ? "Drag the body to move. Dots on the ink reshape it. A diamond is width. The square scales. Drag the rotate handle above the box."
+          ? "Drag the body to move the whole figure. Dots reshape it. A diamond is arrowhead width. Alt-click or Ins adds a point; Shift-click deletes one."
           : "Drag to move. Drag the white corners to reshape."}
       </p>
       <button type="button" className="btn btn-danger" onClick={onDelete}>
@@ -220,17 +233,21 @@ export function Inspector({
 function RotateAndPoints({
   onRotateBy,
   onAddPoint,
+  onDeletePoint,
   canAdd,
+  canDelete,
 }: {
   onRotateBy?: (deg: number) => void;
   onAddPoint?: () => void;
+  onDeletePoint?: () => void;
   canAdd: boolean;
+  canDelete?: boolean;
 }) {
-  if (!onRotateBy && !onAddPoint) return null;
+  if (!onRotateBy && !onAddPoint && !onDeletePoint) return null;
   return (
     <div className="inspector-actions">
       {onRotateBy ? (
-        <Field label="Rotate" hint="Keeps the size. Or drag the rotate handle above the box.">
+        <Field label="Rotate" hint="Turns the whole figure. Size stays the same.">
           <span className="rotate-btns">
             {([-90, -15, 15, 90] as const).map((deg) => (
               <button key={deg} type="button" className="tool-btn" onClick={() => onRotateBy(deg)}>
@@ -243,6 +260,11 @@ function RotateAndPoints({
       {canAdd && onAddPoint ? (
         <button type="button" className="btn" onClick={onAddPoint}>
           Add point
+        </button>
+      ) : null}
+      {canDelete && onDeletePoint ? (
+        <button type="button" className="btn" onClick={onDeletePoint}>
+          Remove point
         </button>
       ) : null}
     </div>

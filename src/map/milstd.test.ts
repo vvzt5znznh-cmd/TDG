@@ -2,19 +2,28 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { rotateGeometry, scaleGeometry } from "./geometry";
 import {
+  AXIS_HEAD_MAX,
+  AXIS_HEAD_MIN,
   GRAPHIC_DEFS,
-  applyPlaceAdjust,
+  axisHeadRatio,
+  canDeleteGraphicPoint,
+  canFinishDraw,
+  commitDrawPoints,
+  constrainAxisWidthPoint,
+  defaultAxisWidthPoint,
   defaultPointsAt,
+  deleteGraphicPoint,
   ensureMilStd,
   graphicThumbnail,
   insertGraphicPoint,
   isMilStdReady,
-  placeRecipe,
-  placeSteps,
   pointSpec,
+  previewPoints,
   renderControlMeasure,
   securityLetterSpacing,
+  setGraphicVertex,
   setSecurityLetterSpacing,
+  shouldAutoCommit,
   sidcFor,
   vertexRoles,
 } from "./milstd";
@@ -120,20 +129,66 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     expect(screen[2]![1]).toBeGreaterThan(screen[0]![1]);
   });
 
-  it("stamp-then-adjust: occupy scales about its centroid; seize then aims the arrow", () => {
-    expect(placeRecipe("occupy")).toBe("scale");
-    expect(placeRecipe("seize")).toBe("circleThenArrow");
-    expect(placeSteps(placeRecipe("seize"))).toBe(2);
-    const occupy = { type: "LineString" as const, coordinates: defaultPointsAt("occupy", [800, 600]) };
-    const grown = applyPlaceAdjust("occupy", occupy, [800, 200], 0);
-    const before = Math.hypot(occupy.coordinates[1]![0] - occupy.coordinates[0]![0], occupy.coordinates[1]![1] - occupy.coordinates[0]![1]);
-    const after = Math.hypot(grown.type === "LineString" ? grown.coordinates[1]![0] - grown.coordinates[0]![0] : 0, grown.type === "LineString" ? grown.coordinates[1]![1] - grown.coordinates[0]![1] : 0);
-    expect(after).toBeGreaterThan(before);
-    const seize = { type: "LineString" as const, coordinates: defaultPointsAt("seize", [800, 600]) };
-    const aimed = applyPlaceAdjust("seize", seize, [500, 900], 1);
-    expect(aimed.type).toBe("LineString");
-    if (aimed.type !== "LineString") throw new Error("line");
-    expect(aimed.coordinates[2]).toEqual([500, 900]);
+  it("click-to-draw: 1-point stamps commit immediately; axis needs Space after two shaft points", () => {
+    expect(shouldAutoCommit("destroy", 1)).toBe(true);
+    expect(shouldAutoCommit("checkpoint", 1)).toBe(true);
+    expect(shouldAutoCommit("axis_of_advance", 2)).toBe(false);
+    expect(canFinishDraw("axis_of_advance", 2)).toBe(true);
+    expect(canFinishDraw("axis_of_advance", 1)).toBe(false);
+    const occupy = pointSpec("occupy")!;
+    if (occupy.min === occupy.max) expect(shouldAutoCommit("occupy", occupy.min)).toBe(true);
+    else expect(canFinishDraw("occupy", occupy.min)).toBe(true);
+    const seize = pointSpec("seize")!;
+    expect(canFinishDraw("seize", seize.min)).toBe(true);
+    const flot = pointSpec("flot")!;
+    expect(canFinishDraw("flot", flot.min)).toBe(true);
+    const dir = pointSpec("dir_atk_main")!;
+    if (dir.min === dir.max) expect(shouldAutoCommit("dir_atk_main", dir.min)).toBe(true);
+  });
+
+  it("axis preview treats the cursor as clamped head width, not a polyline corner", () => {
+    const shaft: [number, number][] = [
+      [500, 400],
+      [200, 400],
+    ];
+    const preview = previewPoints("axis_of_advance", shaft, [500, 100]);
+    expect(preview).toHaveLength(3);
+    const width = preview[2]!;
+    const ratio = axisHeadRatio(shaft, width);
+    expect(ratio).toBeGreaterThanOrEqual(AXIS_HEAD_MIN - 1e-6);
+    expect(ratio).toBeLessThanOrEqual(AXIS_HEAD_MAX + 1e-6);
+    expect(width[0]).toBeCloseTo(500, 0);
+    const finished = commitDrawPoints("axis_of_advance", shaft, null);
+    expect(finished).toHaveLength(3);
+    expect(axisHeadRatio(shaft, finished[2]!)).toBeCloseTo(0.18, 2);
+  });
+
+  it("width-handle drag stays perpendicular to the tip; shaft points unchanged", () => {
+    const geometry = { type: "LineString" as const, coordinates: defaultPointsAt("axis_of_advance", [800, 600]) };
+    const shaft = geometry.coordinates.slice(0, -1) as [number, number][];
+    const dragged = setGraphicVertex("axis_of_advance", geometry, 2, [1200, 200]);
+    expect(dragged.type).toBe("LineString");
+    if (dragged.type !== "LineString") throw new Error("line");
+    expect(dragged.coordinates[0]).toEqual(geometry.coordinates[0]);
+    expect(dragged.coordinates[1]).toEqual(geometry.coordinates[1]);
+    const width = dragged.coordinates[2]!;
+    const constrained = constrainAxisWidthPoint(shaft, [1200, 200]);
+    expect(width[0]).toBeCloseTo(constrained[0], 5);
+    expect(width[1]).toBeCloseTo(constrained[1], 5);
+    expect(axisHeadRatio(shaft, [width[0], width[1]])).toBeLessThanOrEqual(AXIS_HEAD_MAX + 1e-6);
+  });
+
+  it("does not pad a ghost sketch with invented points", () => {
+    const ghost = renderControlMeasure({
+      id: "ghost",
+      kind: "occupy",
+      geometry: { type: "LineString", coordinates: [[800, 600]] },
+      label: "",
+    });
+    // One point is below min; without padding the renderer may still return null or a stub — it must not invent a second control point in geometry.
+    const padded = defaultPointsAt("occupy", [800, 600]);
+    expect(padded).toHaveLength(2);
+    expect(ghost === null || ghost.innerSvg.length > 0).toBe(true);
   });
 
   it("maps axis of advance to Main Attack 151403, with a supporting variant", () => {
@@ -161,6 +216,27 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     expect(next.coordinates).toHaveLength(4);
     expect(vertexRoles("axis_of_advance", 4)).toEqual(["path", "path", "path", "width"]);
     expect(next.coordinates[3]).toEqual(geometry.coordinates[2]);
+  });
+
+  it("refuses to delete below min or to drop the axis width point", () => {
+    const axis = { type: "LineString" as const, coordinates: defaultPointsAt("axis_of_advance", [800, 600]) };
+    expect(canDeleteGraphicPoint("axis_of_advance", 3, 2)).toBe(false);
+    expect(deleteGraphicPoint("axis_of_advance", axis, 2).type === "LineString" && (deleteGraphicPoint("axis_of_advance", axis, 2) as { coordinates: unknown[] }).coordinates).toHaveLength(3);
+    const longer = insertGraphicPoint("axis_of_advance", axis);
+    expect(canDeleteGraphicPoint("axis_of_advance", 4, 1)).toBe(true);
+    const trimmed = deleteGraphicPoint("axis_of_advance", longer, 1);
+    expect(trimmed.type).toBe("LineString");
+    if (trimmed.type !== "LineString") throw new Error("line");
+    expect(trimmed.coordinates).toHaveLength(3);
+  });
+
+  it("default and synthesized axis heads stay in the clamp band", () => {
+    const width = defaultAxisWidthPoint([
+      [400, 400],
+      [100, 400],
+    ]);
+    expect(axisHeadRatio([[400, 400], [100, 400]], width)).toBeGreaterThanOrEqual(AXIS_HEAD_MIN);
+    expect(axisHeadRatio([[400, 400], [100, 400]], width)).toBeLessThanOrEqual(AXIS_HEAD_MAX);
   });
 
   it("drops maneuver lines as two-point lines, not a pentagon", () => {
