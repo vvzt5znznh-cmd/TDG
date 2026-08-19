@@ -191,6 +191,10 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
 
   it("no graphic drops degenerate", () => {
     for (const def of GRAPHIC_DEFS) {
+      const spec = pointSpec(def.kind)!;
+      // Two-point lines (phase line, FLOT, direction of attack…) are supposed to
+      // be long and thin. Degenerate drops were the Line-3 task poses.
+      if (spec.geometry === "Line" && spec.min <= 2) continue;
       const aspect = renderedAspect(def.kind, defaultPointsAt(def.kind, [800, 600]));
       expect(aspect, `${def.kind} drops at ${aspect.toFixed(1)}:1`).toBeLessThan(6);
     }

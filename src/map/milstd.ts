@@ -371,14 +371,13 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
       [x + 90, y],
     ];
   }
-  if (spec.geometry === "Line") {
-    const count = Math.max(2, spec.min);
-    const pts: [number, number][] = [];
-    for (let i = 0; i < count; i++) {
-      const t = count === 1 ? 0 : i / (count - 1);
-      pts.push([x - 180 + 360 * t, y]);
-    }
-    return pts;
+  // Line min<=2 must not run before max===3: Clear/Breach/PDF are Line-3 and
+  // were dropping as collinear slivers (~14–17:1) that shadow the 3-point pose.
+  if (spec.geometry === "Line" && spec.min <= 2) {
+    return [
+      [x - 180, y],
+      [x + 180, y],
+    ];
   }
   if (spec.max === 3) {
     return [
@@ -394,6 +393,15 @@ export function defaultPointsAt(kind: ControlMeasureKind, at: [number, number]):
       [x - 60, y - 90],
       [x + 60, y - 90],
     ];
+  }
+  if (spec.geometry === "Line" && spec.min >= 5) {
+    const n = spec.min;
+    const pts: [number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 0 : i / (n - 1);
+      pts.push([x - 180 + 360 * t, y + Math.round(Math.sin(t * Math.PI * 2) * 50)]);
+    }
+    return pts;
   }
   const r = 130;
   const pts: [number, number][] = [];
