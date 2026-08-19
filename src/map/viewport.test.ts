@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientToMap, defaultViewport, panViewport, screenToMapDistance, viewBox, viewportCenter, zoomViewport } from "./viewport";
+import { clientToMap, clampPointToSheet, defaultViewport, panViewport, screenToMapDistance, viewBox, viewportCenter, zoomViewport } from "./viewport";
 
 describe("viewport", () => {
   it("writes a viewBox from camera", () => {
@@ -45,5 +45,11 @@ describe("viewport", () => {
     const vp = panViewport(defaultViewport(), 40, -10);
     expect(vp.x).toBe(40);
     expect(vp.y).toBe(-10);
+  });
+
+  it("clamps points onto the sheet instead of clipping them", () => {
+    expect(clampPointToSheet([-20, 50])).toEqual([0, 50]);
+    expect(clampPointToSheet([1700, 1300])).toEqual([1600, 1200]);
+    expect(clampPointToSheet([800, 600])).toEqual([800, 600]);
   });
 });

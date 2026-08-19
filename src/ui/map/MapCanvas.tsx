@@ -3,7 +3,7 @@ import { editableVertices, geometryCentroid, nearestEdge, pointerDistance, point
 import { pickFeature, pickVertex } from "../../map/hitTest";
 import { allGroundAndOverlayFeatures } from "../../map/mapBase";
 import { axisRenderPoints, axisWidthFromHandle, clampAxisWidth, graphicEdgeCount, isAxisKind, renderControlMeasure, vertexRoles, type VertexRole } from "../../map/milstd";
-import { clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
+import { clampPointToSheet, clampViewport, clientToMapFromSvg, contentScale, screenToMapDistance, viewBox, zoomViewport, type Viewport } from "../../map/viewport";
 import type { Audience, ControlMeasure, MapDocument, MapFeature, Point } from "../../schema/types";
 import { FeatureShape, MapScene } from "./MapView";
 
@@ -145,9 +145,8 @@ export function MapCanvas({
   }
 
   function maybeSnap(point: [number, number]): [number, number] {
-    if (!snap) return point;
-    const step = 25;
-    return [Math.round(point[0] / step) * step, Math.round(point[1] / step) * step];
+    const next = snap ? ([Math.round(point[0] / 25) * 25, Math.round(point[1] / 25) * 25] as [number, number]) : point;
+    return clampPointToSheet(next);
   }
 
   function mapPx(screenPx: number): number {

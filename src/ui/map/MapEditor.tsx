@@ -27,6 +27,7 @@ import { withSyncedSidc } from "../../map/sidc";
 import { createSymbolFromStamp, layerRoleForAffiliation, type UnitStamp } from "../../map/stamp";
 import {
   clientToMapFromSvg,
+  clampPointToSheet,
   defaultViewport,
   fitViewport,
   viewportCenter,
@@ -101,6 +102,15 @@ function shaftLength(verts: [number, number][]): number {
     length += Math.hypot(b[0] - a[0], b[1] - a[1]);
   }
   return length;
+}
+
+function clampPlacedGeometry(geometry: GeoGeometry): GeoGeometry {
+  let next = geometry;
+  for (const [index, point] of editableVertices(geometry).entries()) {
+    const clamped = clampPointToSheet(point);
+    if (clamped[0] !== point[0] || clamped[1] !== point[1]) next = setVertex(next, index, clamped);
+  }
+  return next;
 }
 
 function addOverlayFeature(map: MapDocument, layerRole: MapDocument["layers"][number]["role"], feature: MapFeature): MapDocument {
@@ -299,9 +309,10 @@ export function MapEditor({
   }
 
   function snapPoint(point: [number, number]): [number, number] {
-    if (!snapRef.current) return point;
-    const step = 25;
-    return [Math.round(point[0] / step) * step, Math.round(point[1] / step) * step];
+    const next = snapRef.current
+      ? ([Math.round(point[0] / 25) * 25, Math.round(point[1] / 25) * 25] as [number, number])
+      : point;
+    return clampPointToSheet(next);
   }
 
   function clientOnSheet(client: { clientX: number; clientY: number }): boolean {
@@ -323,7 +334,7 @@ export function MapEditor({
   }
 
   function graphicGeometryAt(kind: ControlMeasureKind, point: [number, number]): GeoGeometry {
-    const points = defaultPointsAt(kind, point);
+    const points = defaultPointsAt(kind, clampPointToSheet(point)).map(clampPointToSheet);
     if (points.length === 1) return { type: "Point", coordinates: points[0]! };
     return { type: "LineString", coordinates: points };
   }
@@ -382,7 +393,7 @@ export function MapEditor({
       setAdjust(null);
       return;
     }
-    const geometry = applyPlaceAdjust(adjust.kind, feature.geometry, point, adjust.step);
+    const geometry = clampPlacedGeometry(applyPlaceAdjust(adjust.kind, feature.geometry, clampPointToSheet(point), adjust.step));
     const patch: Partial<ControlMeasure> = { geometry };
     if (isAxisKind(adjust.kind) && placeRecipe(adjust.kind) === "scale") {
       const before = editableVertices(feature.geometry);
@@ -726,7 +737,7 @@ export function MapEditor({
               setSelectedId(id);
               if (id !== adjust?.id) setAdjust(null);
             }}
-            onClickPoint={(point) => commitPoint([point.coordinates[0], point.coordinates[1]])}
+            onClickPoint={(point) => commitPoint(clampPointToSheet([point.coordinates[0], point.coordinates[1]]))}
             onFinishDraft={finishDraft}
             onHoverPoint={(pt) => coordListenerRef.current?.(pt)}
             onPlaceAt={(point) => {
@@ -743,10 +754,10 @@ export function MapEditor({
               if (feature.featureType === "control_measure") {
                 const max = graphicStoredMax(feature.kind) ?? pointSpec(feature.kind)?.max;
                 if (max && editableVertices(feature.geometry).length >= max) return;
-                commit(patchFeature(current, id, { geometry: insertGraphicPoint(feature.kind, feature.geometry, afterIndex, point) }));
+                commit(patchFeature(current, id, { geometry: insertGraphicPoint(feature.kind, feature.geometry, afterIndex, clampPointToSheet(point)) }));
                 return;
               }
-              commit(patchFeature(current, id, { geometry: insertVertex(feature.geometry, afterIndex, point) }));
+              commit(patchFeature(current, id, { geometry: insertVertex(feature.geometry, afterIndex, clampPointToSheet(point)) }));
             }}
             onMove={(id, dx, dy) => {
               const current = mapRef.current;
@@ -758,7 +769,7 @@ export function MapEditor({
               if (!current) return;
               const feature = allGroundAndOverlayFeatures(current).find((item) => item.id === id);
               if (!feature || !("geometry" in feature)) return;
-              onChange(replaceMap(scenario, patchFeature(current, id, { geometry: setVertex(feature.geometry, index, point.coordinates) })));
+              onChange(replaceMap(scenario, patchFeature(current, id, { geometry: setVertex(feature.geometry, index, clampPointToSheet([point.coordinates[0], point.coordinates[1]])) })));
             }}
             onMoveAxisWidth={(id, width) => {
               const current = mapRef.current;

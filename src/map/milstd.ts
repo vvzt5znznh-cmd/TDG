@@ -709,11 +709,53 @@ function parseGeoSvg(svg: string): RenderedGraphic | null {
   };
 }
 
+function compressForThumbnail(pts: [number, number][]): [number, number][] {
+  if (pts.length < 2) return pts;
+  const xs = pts.map((p) => p[0]);
+  const ys = pts.map((p) => p[1]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const w = Math.max(1, maxX - minX);
+  const h = Math.max(1, maxY - minY);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  if (w / h > 2.5) {
+    const scaleX = (h * 2.5) / w;
+    return pts.map(([x, y]) => [cx + (x - cx) * scaleX, y]);
+  }
+  if (h / w > 2.5) {
+    const scaleY = (w * 2.5) / h;
+    return pts.map(([x, y]) => [x, cy + (y - cy) * scaleY]);
+  }
+  return pts;
+}
+
+/** Drop pose compressed to fit a palette card. Axis width is re-derived after compress. */
+export function thumbnailPointsAt(kind: ControlMeasureKind, at: [number, number]): [number, number][] {
+  const compressed = compressForThumbnail(defaultPointsAt(kind, at));
+  if (isAxisKind(kind)) return axisRenderPoints(compressed, DEFAULT_AXIS_WIDTH);
+  return compressed;
+}
+
 /** Standalone SVG data URL for palette thumbnails — the real graphic, not an icon. */
 export function graphicThumbnail(kind: ControlMeasureKind): { href: string; width: number; height: number } | null {
   if (!c5) return null;
   const center: [number, number] = [800, 600];
-  const rendered = renderControlMeasure({ kind, geometry: { type: "LineString", coordinates: defaultPointsAt(kind, center) }, label: "" });
+  const pts = thumbnailPointsAt(kind, center);
+  const rendered = isAxisKind(kind)
+    ? renderControlMeasure({
+        kind,
+        geometry: { type: "LineString", coordinates: pts.slice(0, -1) },
+        label: "",
+        axisWidth: pts.length >= 2 ? axisWidthFromHandle(pts.slice(0, -1), pts[pts.length - 1]!) : DEFAULT_AXIS_WIDTH,
+      })
+    : renderControlMeasure({
+        kind,
+        geometry: pts.length === 1 ? { type: "Point", coordinates: pts[0]! } : { type: "LineString", coordinates: pts },
+        label: "",
+      });
   if (!rendered) return null;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${rendered.width}" height="${rendered.height}" viewBox="0 0 ${rendered.width} ${rendered.height}">${rendered.innerSvg}</svg>`;
   return {

@@ -20,6 +20,7 @@ import {
   setSecurityLetterSpacing,
   sidcFor,
   SYMBOLOGY_VERSION,
+  thumbnailPointsAt,
   vertexRoles,
 } from "./milstd";
 
@@ -97,6 +98,17 @@ describe("MIL-STD-2525D adapter (US Army renderer)", () => {
     const thumb = graphicThumbnail("support_by_fire");
     expect(thumb).not.toBeNull();
     expect(thumb!.href.startsWith("data:image/svg+xml")).toBe(true);
+  });
+
+  it("compresses long graphics for palette thumbnails", () => {
+    const pts = thumbnailPointsAt("phase_line", [800, 600]);
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    const w = Math.max(...xs) - Math.min(...xs);
+    const h = Math.max(1, Math.max(...ys) - Math.min(...ys));
+    expect(Math.max(w / h, h / w)).toBeLessThanOrEqual(2.51);
+    const axis = thumbnailPointsAt("axis_of_advance", [800, 600]);
+    expect(axis.length).toBeGreaterThanOrEqual(3);
   });
 
   it("warping: moving a control point reshapes without losing the graphic", () => {

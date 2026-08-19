@@ -1,6 +1,10 @@
 export const MAP_WIDTH = 1600;
 export const MAP_HEIGHT = 1200;
 
+export function clampPointToSheet(point: [number, number]): [number, number] {
+  return [Math.max(0, Math.min(MAP_WIDTH, point[0])), Math.max(0, Math.min(MAP_HEIGHT, point[1]))];
+}
+
 export interface Viewport {
   x: number;
   y: number;
